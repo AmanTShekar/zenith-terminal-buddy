@@ -1,89 +1,103 @@
-# Terminal Buddy
+<div align="center">
+  <img src="https://raw.githubusercontent.com/AmanTShekar/zenith-terminal-buddy/main/assets/banner.png" alt="Terminal Buddy Banner" width="100%">
+  
+  <h1>Terminal Buddy</h1>
+  
+  <p><b>A Knowledgeable Companion for Your Terminal</b></p>
 
-> Your friendly terminal companion inside VS Code — explains errors, suggests commands, tracks history, helps with git, and has a pet. 🐱
+  <p>
+    <img src="https://img.shields.io/badge/status-heavy%20development-orange?style=for-the-badge" alt="Status: Heavy Development">
+    <img src="https://img.shields.io/badge/license-MIT-blue?style=for-the-badge" alt="License: MIT">
+    <img src="https://img.shields.io/badge/PRs-welcome-brightgreen?style=for-the-badge" alt="PRs Welcome">
+  </p>
 
-## Features
-
-- 📋 **Command Log** — Every terminal command tracked with status, tag, and timestamp
-- 💡 **Smart Suggestions** — Ranked suggestions based on your project, errors, and git state
-- 🔀 **Git Status** — Branch, uncommitted files, ahead/behind counts, conflict detection
-- 🧠 **Error Explanation** — 21 built-in rules + optional AI explanations
-- 🤖 **BYOK AI** — Bring your own key for Gemini, OpenAI, Claude, or Groq
-- 📦 **Dependency Detection** — Spots missing npm/pip packages and suggests the fix
-- 🐱 **Pet Companion** — Emoji pet with mood, XP, and leveling system
-- 🔍 **Search + Filter** — Filter log by status, tag; full-text search
-
-## Getting Started
-
-1. **Install** the extension
-2. Open the **Terminal Buddy** tab in VS Code's bottom panel (next to Terminal)
-3. Run commands in your terminal — they appear in the log automatically
-
-## AI Setup (Optional)
-
-Run the command: **Terminal Buddy: Set AI API Key**
-
-Choose your provider:
-| Provider | Cost | Get Key |
-|----------|------|---------|
-| Google Gemini | ✅ Free | [aistudio.google.com](https://aistudio.google.com) |
-| OpenAI | 💳 Paid | [platform.openai.com](https://platform.openai.com) |
-| Anthropic Claude | 💳 Paid | [console.anthropic.com](https://console.anthropic.com) |
-| Groq | ✅ Free tier | [console.groq.com](https://console.groq.com) |
-
-API keys are stored securely using VS Code's built-in Secret Storage — never in plain text.
-
-## Commands
-
-| Command | Description |
-|---------|-------------|
-| `Terminal Buddy: Open Panel` | Open the panel |
-| `Terminal Buddy: Set AI API Key` | Configure your AI provider |
-| `Terminal Buddy: Clear History` | Clear command history |
-| `Terminal Buddy: Toggle Pet Mode` | Show/hide the pet |
-
-## Settings
-
-| Setting | Default | Description |
-|---------|---------|-------------|
-| `terminalBuddy.aiEnabled` | `false` | Enable AI explanations |
-| `terminalBuddy.aiProvider` | `gemini` | AI provider (gemini/openai/claude/groq) |
-| `terminalBuddy.petEnabled` | `true` | Show pet companion |
-| `terminalBuddy.petType` | `cat` | Pet type (cat/dog/robot/ghost) |
-| `terminalBuddy.petName` | `Buddy` | Pet name |
-| `terminalBuddy.warnOnMainPush` | `true` | Warn before pushing to main |
-| `terminalBuddy.maxHistoryItems` | `500` | Max command history |
-
-## Shell Integration
-
-Terminal Buddy uses VS Code's Shell Integration API for reliable command tracking. This is enabled by default in VS Code for bash, zsh, fish, and PowerShell. If terminal output isn't being captured, check that shell integration is enabled in your VS Code settings.
-
-## Pet System
-
-Your pet reacts to what you do:
-- 😸 **Happy** — Command succeeded after a failure
-- 😿 **Worried** — Three commands failed in a row
-- 🙀 **Excited** — New workspace opened
-- 😴 **Sleeping** — No activity for 10 minutes
-- 🫣 **Scared** — You just ran `rm -rf`
-
-Earn XP by fixing errors, following suggestions, and writing clean git commits. Level up to 5!
-
-## Development
-
-```bash
-# Install dependencies
-npm install
-
-# Build
-npm run build
-
-# Watch mode
-npm run watch
-
-# Press F5 in VS Code to launch Extension Development Host
-```
+  <p>
+    <i>Stop fighting with cryptic terminal errors. Get plain-English explanations, smart command suggestions, and a little mascot companion, all inside VS Code.</i>
+  </p>
+</div>
 
 ---
 
-*Built with ❤️ for developers who want a friend in their terminal.*
+## 🚀 Why Terminal Buddy?
+
+Terminal output is often cluttered with ANSI codes, jargon-heavy error messages, and context that’s hard to parse. For developers, this leads to **constant context switching**: you copy an error, paste it into a browser, search, and then come back to the IDE.
+
+**Terminal Buddy was made to reduce that friction.** It acts as a bridge between the raw terminal and your development workflow, providing:
+- **Instant Clarity**: Explains <i>why</i> a command failed without leaving VS Code.
+- **Proactive Guidance**: Suggests the next logical step (e.g., missing dependencies, git branch fixes).
+- **Reduced Anxiety**: Checks for dangerous operations (like `rm -rf`) and warns before they happen.
+- **Engagement**: A fun, interactive pet mascot that grows as your terminal skills improve.
+
+---
+
+## ✨ Key Features
+
+- 📋 **Live Command Log**: Track every command you run with status indicators, tags (git, test, build), and timestamps.
+- 💡 **AI-Powered Explanations**: Integrates with **Gemini**, **Groq**, **OpenAI**, and **Claude** to explain complex failures.
+- 📦 **Dependency Guardian**: Automatically detects missing packages (`npm`, `pip`, etc.) and offers one-click install suggestions.
+- 🔀 **Git Intelligence**: Real-time branch monitoring, push warnings for `main`, and merge conflict detection.
+- 🐱 **Interactive Mascot**: Choose a Cat, Dog, Robot, or Ghost companion. They celebrate your wins and worry with you when builds fail.
+- 🔎 **Semantic History Search**: Find that one command you ran three days ago using natural language.
+
+---
+
+## 🛠️ Getting Started
+
+1.  **Install** the extension from the VS Code Marketplace.
+2.  Open the **Terminal Buddy** panel in the bottom activity bar (next to your Terminal).
+3.  (Optional) Run `Terminal Buddy: Set AI API Key` to enable AI features.
+
+### Supported AI Providers
+| Provider | Setup | Cost |
+|----------|-------|------|
+| **Google Gemini** | [aistudio.google.com](https://aistudio.google.com) | ✅ Free |
+| **Groq (Llama)** | [console.groq.com](https://console.groq.com) | ✅ Free Tier |
+| **Anthropic Claude**| [console.anthropic.com](https://console.anthropic.com) | 💳 Paid |
+| **OpenAI GPT** | [platform.openai.com](https://platform.openai.com) | 💳 Paid |
+
+---
+
+## 🔒 Security, Privacy & Liability
+
+> [!IMPORTANT]
+> **Data Handling & API Usage**  
+> Terminal Buddy is an Open Source project provided **"AS IS"**. By using this software, you acknowledge and agree to the following:
+> 1.  **Direct Communication**: When AI features are enabled, Terminal Buddy sends the **last few lines of terminal output** and the **failed command** to the AI provider of your choice (via YOUR API keys).
+> 2.  **No Intermediary**: Data is sent directly from your machine to the AI provider's API. We do not store, intercept, or mirror your terminal data on any external servers.
+> 3.  **Third-Party Liability**: We are NOT responsible for how third-party AI providers (Google, OpenAI, Anthropic, etc.) handle your data. Please review their respective privacy policies.
+> 4.  **No Warranty**: We accept NO liability for any data loss, security breaches, or system issues that may result from using this software or from the suggestions provided by the AI.
+
+Always verify commands before executing them, especially those suggested by AI. Terminal Buddy is a *guide*, not a substitute for developer judgment.
+
+---
+
+## 🚧 Status: Heavy Development
+
+This project is currently under **heavy development** to perfect its features and increase reliability. It is a lightweight companion that aims to be zero-config.
+
+**We need your help!**  
+- Want to add a feature?
+- Found a bug in the rule engine?
+- Want to create a new pet skin?
+
+We encourage anyone to contribute and help make Terminal Buddy better. Check out our [Contributing Rules](CONTRIBUTING.md) to get started!
+
+---
+
+## 👤 Creator Space
+
+Terminal Buddy is maintained by **[Zenith Team/Creator Name]** and the open-source community.
+
+If you like this project, consider giving it a ⭐ on GitHub and sharing it with your team!
+
+---
+
+## ⚖️ License
+
+Distributed under the **MIT License**. See `LICENSE` for more information.
+
+---
+
+<p align="center">
+  <i>Built for developers who just want a friend in their terminal. ❤️</i>
+</p>
