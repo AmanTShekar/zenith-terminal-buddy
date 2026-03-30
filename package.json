@@ -1,0 +1,160 @@
+{
+  "name": "terminal-buddy",
+  "displayName": "Terminal Buddy",
+  "description": "Your friendly terminal companion — explains errors, suggests commands, tracks history, helps with git, and has a pet.",
+  "version": "0.0.1",
+  "publisher": "terminal-buddy",
+  "engines": {
+    "vscode": "^1.93.0"
+  },
+  "categories": ["Other"],
+  "keywords": ["terminal", "error", "helper", "ai", "companion", "pet", "git"],
+  "activationEvents": [],
+  "enabledApiProposals": [
+    "terminalDataWriteEvent"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "terminalBuddy.openPanel",
+        "title": "Terminal Buddy: Open Panel"
+      },
+      {
+        "command": "terminalBuddy.clearHistory",
+        "title": "Terminal Buddy: Clear History"
+      },
+      {
+        "command": "terminalBuddy.setApiKey",
+        "title": "Terminal Buddy: Set AI API Key"
+      },
+      {
+        "command": "terminalBuddy.togglePet",
+        "title": "Terminal Buddy: Toggle Pet Mode"
+      }
+    ],
+    "configuration": {
+      "title": "Terminal Buddy",
+      "properties": {
+        "terminalBuddy.petEnabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show pet companion in the panel"
+        },
+        "terminalBuddy.petType": {
+          "type": "string",
+          "default": "cat",
+          "enum": ["cat", "dog", "robot", "ghost"],
+          "enumDescriptions": [
+            "A friendly cat 🐱",
+            "A loyal dog 🐶",
+            "A helpful robot 🤖",
+            "A silly ghost 👻"
+          ],
+          "description": "Choose your pet companion"
+        },
+        "terminalBuddy.petName": {
+          "type": "string",
+          "default": "Buddy",
+          "description": "Name your pet companion"
+        },
+        "terminalBuddy.aiEnabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable AI-powered error explanations (requires API key)"
+        },
+        "terminalBuddy.aiProvider": {
+          "type": "string",
+          "default": "gemini",
+          "enum": ["gemini", "openai", "claude", "groq"],
+          "enumDescriptions": [
+            "Google Gemini — free at aistudio.google.com",
+            "OpenAI GPT — requires paid API key from platform.openai.com",
+            "Anthropic Claude — requires paid API key from console.anthropic.com",
+            "Groq — free tier at console.groq.com"
+          ],
+          "description": "Choose your AI provider for error explanations"
+        },
+        "terminalBuddy.apiKey": {
+          "type": "string",
+          "default": "",
+          "description": "AI API key (Gemini, OpenAI, Claude, or Groq)."
+        },
+        "terminalBuddy.selectedModel": {
+          "type": "string",
+          "default": "",
+          "description": "Specific model name to use (e.g., 'gemini-1.5-pro'). Leave empty to auto-detect."
+        },
+        "terminalBuddy.warnOnMainPush": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show a warning before pushing to main/master branch"
+        },
+        "terminalBuddy.enableTerminalSafety": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable real-time auditing of terminal commands to prevent accidental destruction."
+        },
+        "terminalBuddy.enableInterception": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically intercept and halt dangerous commands until confirmed."
+        },
+        "terminalBuddy.semanticHistorySearch": {
+          "type": "boolean",
+          "default": true,
+          "description": "Use AI to assist in searching through command history."
+        },
+        "terminalBuddy.showExplorer": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show the Smart Navigator/Explorer in the panel."
+        },
+        "terminalBuddy.aiCooldownMs": {
+          "type": "number",
+          "default": 4000,
+          "description": "Cooldown between AI requests (ms) to stay under RPM/RPD limits (4000ms = ~15 RPM)."
+        },
+        "terminalBuddy.maxHistoryItems": {
+          "type": "number",
+          "default": 500,
+          "minimum": 50,
+          "maximum": 2000,
+          "description": "Maximum number of command history entries to store"
+        }
+      }
+    },
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "terminal-buddy",
+          "title": "Terminal Buddy",
+          "icon": "$(terminal)"
+        }
+      ]
+    },
+    "views": {
+      "terminal-buddy": [
+        {
+          "type": "webview",
+          "id": "terminalBuddy.panel",
+          "name": "Terminal Buddy",
+          "icon": "$(terminal)"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "build": "node esbuild.config.js",
+    "watch": "node esbuild.config.js --watch",
+    "package": "vsce package",
+    "compile": "tsc -noEmit"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.93.0",
+    "@types/node": "^20.0.0",
+    "typescript": "^5.5.0",
+    "esbuild": "^0.21.0",
+    "@vscode/vsce": "^3.0.0"
+  }
+}

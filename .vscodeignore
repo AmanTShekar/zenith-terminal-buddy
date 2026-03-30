@@ -1,0 +1,9 @@
+.vscode/**
+src/**
+node_modules/**
+.gitignore
+tsconfig.json
+esbuild.config.js
+**/*.ts
+**/*.map
+TERMINAL_BUDDY_V0_PLAN.md
