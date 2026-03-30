@@ -2,10 +2,10 @@
  
   
   <h1>Terminal Buddy</h1>
+
+  <img src="https://github.com/AmanTShekar/zenith-terminal-buddy/blob/main/logo%20terminal%20buddy.jpg" alt="Terminal Buddy Banner" width="80%" height="60%">
   
   <p><b>A Knowledgeable Companion for Your Terminal</b></p>
-
-   <img src="https://github.com/AmanTShekar/zenith-terminal-buddy/blob/main/logo%20terminal%20buddy.jpg" alt="Terminal Buddy Banner" width="100%">
 
   <p>
     <img src="https://img.shields.io/badge/status-heavy%20development-orange?style=for-the-badge" alt="Status: Heavy Development">
