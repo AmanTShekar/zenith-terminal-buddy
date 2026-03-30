@@ -88,7 +88,7 @@ We encourage anyone to contribute and help make Terminal Buddy better. Check out
 
 ## 👤 Creator Space
 
-Terminal Buddy is maintained by **[Zenith Team/Creator Name]** and the open-source community.
+Terminal Buddy is maintained by **[Zenith Team/Aman.T.Shekar]** and the open-source community.
 
 If you like this project, consider giving it a ⭐ on GitHub and sharing it with your team!
 
