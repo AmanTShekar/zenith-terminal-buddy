@@ -22,6 +22,8 @@ export interface CommandEntry {
   errorOutput?: string;
   agentSessionId?: string;
   durationMs?: number;
+  terminalId?: string;
+  terminalName?: string;
 }
 
 // ─── Active Commands ─────────────────────────────────────────────────────────
@@ -31,6 +33,8 @@ export interface ActiveCommand {
   cmd: string;
   cwd: string;
   startTime: number;
+  terminalId: string;
+  terminalName: string;
 }
 
 // ─── Project Scanning ────────────────────────────────────────────────────────
@@ -79,6 +83,7 @@ export interface GitStatus {
   hasConflicts: boolean;
   lastCommitMessage: string;
   lastCommitTime: string;
+  remoteUrl?: string;
 }
 
 // ─── Suggestions ─────────────────────────────────────────────────────────────

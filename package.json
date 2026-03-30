@@ -121,24 +121,29 @@
           "minimum": 50,
           "maximum": 2000,
           "description": "Maximum number of command history entries to store"
+        },
+        "terminalBuddy.scanAllPorts": {
+          "type": "boolean",
+          "default": false,
+          "description": "If enabled, scans all active network ports. May impact performance."
         }
       }
     },
     "viewsContainers": {
       "activitybar": [
         {
-          "id": "terminal-buddy",
+          "id": "terminalBuddy-sidebar",
           "title": "Terminal Buddy",
           "icon": "$(terminal)"
         }
       ]
     },
     "views": {
-      "terminal-buddy": [
+      "terminalBuddy-sidebar": [
         {
-          "type": "webview",
           "id": "terminalBuddy.panel",
-          "name": "Terminal Buddy",
+          "name": "Buddy Dashboard",
+          "type": "webview",
           "icon": "$(terminal)"
         }
       ]

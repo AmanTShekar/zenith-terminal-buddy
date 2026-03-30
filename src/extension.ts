@@ -12,6 +12,8 @@ import { PetManager } from './pet/PetManager';
 import { AIClient } from './ai/AIClient';
 import { SafetyEngine } from './core/SafetyEngine';
 import { TerminalPetProvider } from './ui/TerminalPetProvider';
+import { PortMonitor } from './core/PortMonitor';
+import { ExecutableScanner } from './core/ExecutableScanner';
 import { SCANNER_DELAY_MS, CommandEntry } from './types';
 
 let panelProvider: PanelProvider;
@@ -31,6 +33,8 @@ export function activate(context: vscode.ExtensionContext): void {
   const terminalWatcher = new TerminalWatcher();
   const safetyEngine = new SafetyEngine(aiClient);
   const petProvider = new TerminalPetProvider(commandLogger);
+  const portMonitor = new PortMonitor();
+  const executableScanner = new ExecutableScanner();
 
   // ── AI Burst Protection State ─────────────────────────────────────────────
   let lastAiCallTime = 0;
@@ -47,7 +51,9 @@ export function activate(context: vscode.ExtensionContext): void {
     suggestionEngine,
     petManager,
     aiClient,
-    terminalWatcher
+    terminalWatcher,
+    portMonitor,
+    executableScanner
   );
 
   // 🚀 Register commands AFTER provider is ready to avoid "undefined" crash
@@ -58,7 +64,6 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand('terminalBuddy.clearHistory', async () => {
       await commandLogger.clear();
       panelProvider.sendLog([]);
-      panelProvider.sendStats(commandLogger.getStats());
       vscode.window.showInformationMessage('Terminal Buddy: History cleared.');
     }),
     vscode.commands.registerCommand('terminalBuddy.setApiKey', async () => {
@@ -77,11 +82,11 @@ export function activate(context: vscode.ExtensionContext): void {
       await aiClient.setApiKey(key);
       await config.update('aiEnabled', true, vscode.ConfigurationTarget.Global);
 
-      const valid = await aiClient.validateKey(provider as any, key);
-      if (valid) {
+      const result = await aiClient.validateKey(provider as any, key);
+      if (result.success) {
         vscode.window.showInformationMessage(`✅ Terminal Buddy: API key saved and verified!`);
       } else {
-        vscode.window.showWarningMessage(`⚠️ Terminal Buddy: Key saved but verification failed.`);
+        vscode.window.showWarningMessage(`⚠️ Terminal Buddy: Key saved but verification failed: ${result.error || 'Check your internet or key.'}`);
       }
     }),
     vscode.commands.registerCommand('terminalBuddy.togglePet', async () => {
@@ -173,6 +178,11 @@ export function activate(context: vscode.ExtensionContext): void {
               if (aiExplanation) {
                 panelProvider.sendExplanation(aiExplanation);
                 petManager.onErrorExplained();
+              } else {
+                panelProvider.sendExplanation({
+                  summary: "I'm having trouble analyzing this error right now. My connection might be acting up!",
+                  cause: '', fix: '', suggestedCommands: [], source: 'ai', fromCache: false
+                });
               }
             };
 
@@ -199,6 +209,14 @@ export function activate(context: vscode.ExtensionContext): void {
 
       panelProvider.sendSuggestions(suggestions);
       panelProvider.sendGitStatus(gitStatus);
+      if (gitStatus) {
+        const tree = await gitHelper.getDetailedTree(entry.cwd);
+        const remoteUrl = await gitHelper.getRemoteUrl(entry.cwd);
+        panelProvider.post({ 
+          type: 'updateGitTree', 
+          payload: { tree, remoteUrl, branch: gitStatus.branch } 
+        });
+      }
       panelProvider.sendWorkspaceMap(workspaceMap);
 
       if (gitStatus && entry.tag === 'git' && entry.cmd.includes('push')) {
@@ -209,11 +227,14 @@ export function activate(context: vscode.ExtensionContext): void {
         }
       }
 
-      panelProvider.sendLog(commandLogger.getRecent(50));
+      panelProvider.sendLog(commandLogger.getRecent(100)); // Increased limit
       panelProvider.sendStats(commandLogger.getStats());
       panelProvider.sendPetState(petManager.getState());
       panelProvider.sendActiveCommands();
     }),
+    terminalWatcher.onData((e) => {
+      panelProvider.sendTerminalData(e.data);
+    })
   );
 
   // ── Terminal Links (Underline errors) ────────────────────────────────────

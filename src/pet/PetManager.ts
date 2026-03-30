@@ -89,10 +89,23 @@ export class PetManager implements vscode.Disposable {
   // ── Event handlers (called from extension.ts) ──────────────────────────
 
   onCommandStart(cmd: string): void {
-    this.setTemporaryMood('excited', 3000);
+    const config = vscode.workspace.getConfiguration('terminalBuddy');
+    if (/npm\s+run|python|node|go\s+run/i.test(cmd)) {
+      this.setTemporaryMood('excited', -1); // Indefinite excited (running) until finished
+    } else {
+      this.setTemporaryMood('excited', 3000);
+    }
   }
 
   onCommand(entry: CommandEntry): void {
+    // Clear indefinite "running" mood if set
+    if (this.moodTimer === null && this.state.mood === 'excited') {
+       this.state.mood = 'neutral';
+    } else if (this.moodTimer) {
+       clearTimeout(this.moodTimer);
+       this.moodTimer = null;
+    }
+
     this.state.lastActiveAt = Date.now();
     this.resetInactivityTimer();
 
@@ -107,29 +120,22 @@ export class PetManager implements vscode.Disposable {
       return;
     }
 
-    // Mood: last 3 all failed → worried
-    const last3 = this.recentStatuses.slice(-3);
-    if (last3.length === 3 && last3.every((s) => s === 'error')) {
-      this.state.mood = 'worried';
-      this.save();
+    // Mood: Error → worried
+    if (entry.status === 'error') {
+      this.setTemporaryMood('worried', 10000);
       return;
     }
 
-    // Mood: success after failure → happy
-    if (entry.status === 'ok' && this.recentStatuses.length >= 2) {
-      const prev = this.recentStatuses[this.recentStatuses.length - 2];
-      if (prev === 'error') {
-        this.addXP(15);
-        this.setTemporaryMood('happy', 10000);
-        return;
-      }
+    // Mood: OK → happy
+    if (entry.status === 'ok') {
+      this.addXP(5);
+      this.setTemporaryMood('happy', 5000);
+      return;
     }
 
     // Default: neutral
-    if (!this.moodTimer) {
-      this.state.mood = 'neutral';
-      this.save();
-    }
+    this.state.mood = 'neutral';
+    this.save();
   }
 
   onErrorExplained(): void {

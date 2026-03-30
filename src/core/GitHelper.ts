@@ -133,6 +133,7 @@ export class GitHelper {
         hasConflicts,
         lastCommitMessage,
         lastCommitTime,
+        remoteUrl: await this.getRemoteUrl(cwd) || undefined
       };
 
       this.cache = { status, path: cwd, at: Date.now() };
@@ -236,5 +237,19 @@ export class GitHelper {
       status: node.status,
       children: Object.values(node.children).map(c => this.simplifyTree(c))
     };
+  }
+
+  async getRemoteUrl(cwd: string): Promise<string | null> {
+    if (!cwd) return null;
+    try {
+      const url = await execGit(['-C', cwd, 'remote', 'get-url', 'origin'], cwd);
+      // Convert git@github.com:User/Repo.git to https://github.com/User/Repo
+      if (url.startsWith('git@')) {
+        return url.replace(':', '/').replace('git@', 'https://').replace(/\.git$/, '');
+      }
+      return url.replace(/\.git$/, '');
+    } catch {
+      return null;
+    }
   }
 }

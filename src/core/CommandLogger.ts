@@ -96,9 +96,18 @@ export class CommandLogger {
     const words = query.toLowerCase().split(/\s+/).filter(Boolean);
 
     return this.entries.filter((entry) => {
-      const haystack = `${entry.cmd} ${entry.cwd} ${entry.project}`.toLowerCase();
+      const haystack = `${entry.cmd} ${entry.cwd} ${entry.project} ${entry.terminalName ?? ''}`.toLowerCase();
       return words.every((word) => haystack.includes(word));
     });
+  }
+
+  getByTerminal(terminalId: string): CommandEntry[] {
+    return this.entries.filter(e => e.terminalId === terminalId);
+  }
+
+  getByDirectory(cwd: string): CommandEntry[] {
+    const normalized = cwd.replace(/\\/g, '/').toLowerCase();
+    return this.entries.filter(e => e.cwd.replace(/\\/g, '/').toLowerCase() === normalized);
   }
 
   async clear(): Promise<void> {

@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import {
-  AIProviderType, AI_PROVIDERS, ErrorExplanation, CommandEntry, ProjectInfo,
+  AIProviderType, AI_PROVIDERS, ErrorExplanation, CommandEntry, ProjectInfo, WorkspaceMap,
   AI_RATE_LIMIT_MS, AI_TIMEOUT_MS, AI_CACHE_MAX,
 } from '../types';
 import { doubtClearingPrompt, errorExplanationPrompt } from './prompts';
@@ -194,13 +194,13 @@ const STREAM_CALLERS: Record<AIProviderType, StreamCallerFunc> = {
 };
 
 const CALLERS: Record<AIProviderType, CallerFunc> = {
-  gemini: (key, hist, mod, force) => callGemini(key, hist, mod),
+  gemini: (key, hist, mod, force) => callGemini(key, hist, mod, force),
   openai: (key, hist, mod, force) => callOpenAI(key, hist, mod, force),
   claude: (key, hist, mod, force) => callClaude(key, hist, mod),
   groq: (key, hist, mod, force) => callGroq(key, hist, mod, force),
 };
 
-async function callGemini(apiKey: string, history: ChatMessage[], model?: string): Promise<string> {
+async function callGemini(apiKey: string, history: ChatMessage[], model?: string, forceJson?: boolean): Promise<string> {
   const activeModel = model || AI_PROVIDERS.gemini.model;
   const encodedKey = encodeURIComponent(apiKey.trim());
   
@@ -228,7 +228,7 @@ async function callGemini(apiKey: string, history: ChatMessage[], model?: string
           generationConfig: { 
             maxOutputTokens: 1000, 
             temperature: 0.2, 
-            responseMimeType: 'application/json' 
+            ...(forceJson ? { responseMimeType: 'application/json' } : {})
           },
         }),
       });
@@ -243,7 +243,9 @@ async function callGemini(apiKey: string, history: ChatMessage[], model?: string
       if (!text) throw new Error('Empty Gemini response');
       
       // Clean markdown code blocks if present
-      text = text.replace(/```json/g, '').replace(/```/g, '').trim();
+      if (forceJson) {
+        text = text.replace(/```json/g, '').replace(/```/g, '').trim();
+      }
       return text;
     } catch (e) {
       lastError = e;
@@ -296,6 +298,7 @@ export class AIClient {
   private context: vscode.ExtensionContext;
   private cache = new Map<string, ErrorExplanation>();
   private lastCallAt = 0;
+  public lastError: string | null = null;
   
   // Persist conversation per-workspace to provide memory context
   private sessionHistory: Map<string, ChatMessage[]> = new Map();
@@ -304,7 +307,6 @@ export class AIClient {
     this.context = context;
   }
 
-  // ── Fetch Available Models ───────────────────────────────────────────
   // ── Fetch Available Models ───────────────────────────────────────────
   async fetchAvailableModels(provider: AIProviderType): Promise<string[]> {
     if (provider !== 'gemini') {
@@ -316,9 +318,8 @@ export class AIClient {
       return defaults[provider] || [];
     }
 
-    // Dynamic discovery for Gemini (fixes 404 for new models like 2.5/3.1)
     const auth = await this.getApiKey('gemini');
-    if (!auth) return ['gemini-1.5-flash']; // Last resort
+    if (!auth) return ['gemini-1.5-flash'];
 
     try {
       const url = `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(auth.key.trim())}`;
@@ -330,7 +331,6 @@ export class AIClient {
         .map((m: any) => m.name.replace('models/', ''))
         .filter((id: string) => !id.includes('embedding') && !id.includes('vision') && !id.includes('aqa'));
       
-      // Prioritize modern "flash" or "lite" models
       return ids.sort((a: string, b: string) => {
         const score = (s: string) => (s.includes('flash') ? 2 : s.includes('lite') ? 1 : 0);
         return score(b) - score(a);
@@ -341,7 +341,7 @@ export class AIClient {
     }
   }
 
-  private async getApiKey(provider?: AIProviderType): Promise<{ key: string; provider: AIProviderType } | null> {
+  public async getApiKey(provider?: AIProviderType): Promise<{ provider: AIProviderType; key: string } | null> {
     const config = vscode.workspace.getConfiguration('terminalBuddy');
     const activeProvider = provider || config.get<AIProviderType>('aiProvider', 'gemini');
     
@@ -363,11 +363,11 @@ export class AIClient {
     return null;
   }
 
-  async validateKey(provider: AIProviderType, key: string): Promise<boolean> {
+  async validateKey(provider: AIProviderType, key: string): Promise<{ success: boolean; error?: string }> {
     try {
+      this.lastError = null;
       const caller = CALLERS[provider];
       
-      // If gemini, first try to find a valid model ID so we don't 404
       let modelToTry: string | undefined;
       if (provider === 'gemini') {
         try {
@@ -378,17 +378,17 @@ export class AIClient {
             const flashModel = (data.models || []).find((m: any) => m.name.includes('flash') || m.name.includes('lite'));
             if (flashModel) {
               modelToTry = flashModel.name.replace('models/', '');
-              console.log(`[Terminal Buddy] Key validation using discovered model: ${modelToTry}`);
             }
           }
-        } catch (e) { /* fallback to default */ }
+        } catch (e) { /* fallback */ }
       }
 
-      const response = await caller(key, [{ role: 'user', content: 'Say "ok" in one word.' }], modelToTry);
-      return response.length > 0;
-    } catch (err) {
+      await caller(key, [{ role: 'user', content: 'Respond with "ok".' }], modelToTry);
+      return { success: true };
+    } catch (err: any) {
+      this.lastError = err.message || String(err);
       console.warn(`[Terminal Buddy] API key validation failed for ${provider}:`, err);
-      return false;
+      return { success: false, error: this.lastError || undefined };
     }
   }
 
@@ -402,12 +402,14 @@ export class AIClient {
     this.lastCallAt = 0;
   }
 
-  // ── Explain an error ─────────────────────────────────────────────────
   async explain(entry: CommandEntry, projectInfo?: ProjectInfo): Promise<ErrorExplanation | null> {
     if (!entry.errorOutput) { return null; }
 
     const now = Date.now();
-    if (now - this.lastCallAt < AI_RATE_LIMIT_MS) {
+    const config = vscode.workspace.getConfiguration('terminalBuddy');
+    const cooldown = config.get<number>('aiCooldownMs', 1000); // Default to 1s
+    
+    if (now - this.lastCallAt < cooldown) {
       return null;
     }
 
@@ -417,21 +419,12 @@ export class AIClient {
       return { ...cached, fromCache: true };
     }
 
-    const config = vscode.workspace.getConfiguration('terminalBuddy');
     const provider = config.get<AIProviderType>('aiProvider', 'gemini');
     const auth = await this.getApiKey(provider);
     
-    if (!auth) { 
-      console.warn('[Terminal Buddy] AI explain aborted: No API Key found.');
-      return null; 
-    }
+    if (!auth) { return null; }
 
     try {
-      const cooldown = config.get<number>('aiCooldownMs', 4000);
-      if (now - this.lastCallAt < cooldown) {
-        return null;
-      }
-
       this.lastCallAt = now;
       const selectedModel = config.get<string>('selectedModel');
       const models = await this.fetchAvailableModels(provider);
@@ -649,15 +642,37 @@ Provide a concise, helpful answer (max 4 sentences). If you suggest a command, w
         fromCache: false,
         source: 'ai',
       };
-    } catch {
+    } catch (err: any) {
+      console.warn('[Terminal Buddy] parseExplanation failed:', err.message);
       return {
-        summary: raw.slice(0, 200),
+        summary: raw.trim() || "Buddy is puzzled by this one. Try asking specifically in chat!",
         cause: '',
         fix: '',
         suggestedCommands: [],
         fromCache: false,
         source: 'ai',
       };
+    }
+  }
+
+  async generateCommand(prompt: string, context?: WorkspaceMap): Promise<string | null> {
+    const auth = await this.getApiKey();
+    if (!auth) return null;
+
+    const system = `You are a terminal expert. Convert the user's natural language request into a single, valid shell command.
+    Context (Project info): ${JSON.stringify(context || {})}
+    Reply ONLY with the command. No explanations.`;
+
+    try {
+      const config = vscode.workspace.getConfiguration('terminalBuddy');
+      const selectedModel = config.get<string>('selectedModel');
+      const modelToUse = (selectedModel && selectedModel.trim()) || (await this.fetchAvailableModels(auth.provider))[0];
+      
+      const res = await CALLERS[auth.provider](auth.key, [{ role: 'user', content: system + '\n\nRequest: ' + prompt }], modelToUse, false);
+      return res.trim().replace(/^`+|`+$/g, '');
+    } catch (e) {
+      console.warn('[Terminal Buddy] Command generation failed:', e);
+      return null;
     }
   }
 
