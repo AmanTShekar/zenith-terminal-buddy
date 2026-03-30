@@ -3,7 +3,7 @@
   
   <h1>Terminal Buddy</h1>
 
-  <img src="https://github.com/AmanTShekar/zenith-terminal-buddy/blob/main/logo%20terminal%20buddy.jpg" alt="Terminal Buddy Banner" width="80%" height="60%">
+  <img src="https://github.com/AmanTShekar/zenith-terminal-buddy/blob/main/logo%20terminal%20buddy.jpg" alt="Terminal Buddy Banner" width="100%" height="40%">
   
   <p><b>A Knowledgeable Companion for Your Terminal</b></p>
 
