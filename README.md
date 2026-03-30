@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="https://raw.githubusercontent.com/AmanTShekar/zenith-terminal-buddy/main/assets/banner.png" alt="Terminal Buddy Banner" width="100%">
+  <img src="https://github.com/AmanTShekar/zenith-terminal-buddy/blob/main/logo%20terminal%20buddy.jpg" alt="Terminal Buddy Banner" width="100%">
   
   <h1>Terminal Buddy</h1>
   
