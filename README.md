@@ -45,9 +45,27 @@ Terminal output is often cluttered with ANSI codes, jargon-heavy error messages,
 
 ## 🛠️ Getting Started
 
-1.  **Install** the extension from the VS Code Marketplace.
-2.  Open the **Terminal Buddy** panel in the bottom activity bar (next to your Terminal).
-3.  (Optional) Run `Terminal Buddy: Set AI API Key` to enable AI features.
+### Local Setup & Requirements
+
+To build and run Terminal Buddy from source, ensure you have the following installed:
+- **Node.js**: v18 or later
+- **npm**: v8 or later
+- **VS Code**: v1.93.0 or later
+
+1. **Clone the repository**:
+   ```bash
+   git clone https://github.com/AmanTShekar/zenith-terminal-buddy.git
+   cd zenith-terminal-buddy
+   ```
+2. **Install dependencies**:
+   ```bash
+   npm install
+   ```
+3. **Compile and Run**:
+   - Open the directory in VS Code.
+   - Press `F5` to open a new VS Code Extension Development Host window.
+   - Open the **Terminal Buddy** panel in the bottom activity bar.
+4. (Optional) Run `Terminal Buddy: Set AI API Key` via the Command Palette to enable AI features.
 
 ### Supported AI Providers
 | Provider | Setup | Cost |
@@ -73,17 +91,24 @@ Always verify commands before executing them, especially those suggested by AI. 
 
 ---
 
-## 🚧 Status: Heavy Development
+## 🚧 Status: Heavy Development & How to Contribute
 
 This project is currently under **heavy development** to perfect its features and increase reliability. It is a lightweight companion that aims to be zero-config.
 
 **We need your help!**  
-- Want to add a feature?
-- Found a bug in the rule engine?
-- Want to create a new pet skin?
+Want to contribute but don't know where to start? 
+- Check out issues labeled **`good first issue`** for beginner-friendly tasks.
+- Look for **`help-wanted`** for features we actively need assistance with.
+- Want to create a new pet skin or add a new AI provider? We are open to PRs!
 
-We encourage anyone to contribute and help make Terminal Buddy better. Check out our [Contributing Rules](CONTRIBUTING.md) to get started!
+### Quick Steps to Contribute:
+1. Fork the repo and create your branch (`git checkout -b feature/AmazingFeature`).
+2. Make your amazing changes.
+3. Commit your changes (`git commit -m 'Add some AmazingFeature'`).
+4. Push to the branch (`git push origin feature/AmazingFeature`).
+5. Open a Pull Request!
 
+We encourage anyone to contribute and help make Terminal Buddy better. Check out our full [Contributing Guidelines](CONTRIBUTING.md) if you want to get involved.
 ---
 
 ## 👤 Creator Space
