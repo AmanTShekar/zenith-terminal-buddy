@@ -10,7 +10,7 @@ const buildOptions = {
   external: ['vscode'],
   format: 'cjs',
   platform: 'node',
-  target: 'node20',
+  target: 'node16',
   sourcemap: true,
   minify: false,
   logLevel: 'info',

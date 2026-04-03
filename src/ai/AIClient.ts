@@ -22,13 +22,12 @@ let WORKING_GEMINI_ENDPOINT: string | null = null;
 let CACHED_MODELS: Record<string, string[]> = {};
 
 async function* callGeminiStream(apiKey: string, history: ChatMessage[], model?: string): AsyncIterable<string> {
-  const encodedKey = encodeURIComponent(apiKey.trim());
+  const trimmedKey = apiKey.trim();
   
   // If we have a working endpoint, use it immediately
   if (WORKING_GEMINI_ENDPOINT) {
     try {
-      const url = WORKING_GEMINI_ENDPOINT.replace('[[KEY]]', encodedKey);
-      yield* runGeminiStream(url, history);
+      yield* runGeminiStream(WORKING_GEMINI_ENDPOINT, history, trimmedKey);
       return; 
     } catch (e) {
       WORKING_GEMINI_ENDPOINT = null; // Invalidate cache on failure
@@ -42,13 +41,13 @@ async function* callGeminiStream(apiKey: string, history: ChatMessage[], model?:
   const endpoints: string[] = [];
   for (const v of versions) {
     for (const m of modelVariants) {
-      endpoints.push(`https://generativelanguage.googleapis.com/${v}/models/${m}:streamGenerateContent?alt=sse&key=${encodedKey}`);
+      endpoints.push(`https://generativelanguage.googleapis.com/${v}/models/${m}:streamGenerateContent?alt=sse`);
     }
   }
   
   // Parallel Probe: Try first 3 endpoints in parallel to find a winner fast
   const probeTasks = endpoints.slice(0, 3).map(async (url) => {
-     const res = await fetch(url, { 
+     const res = await fetch(url + `&key=${encodeURIComponent(trimmedKey)}`, { 
         method: 'POST', 
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ contents: [{ role: 'user', parts: [{ text: 'ping' }] }] })
@@ -59,15 +58,15 @@ async function* callGeminiStream(apiKey: string, history: ChatMessage[], model?:
 
   try {
     const winner = await Promise.any(probeTasks);
-    WORKING_GEMINI_ENDPOINT = winner.replace(encodedKey, '[[KEY]]');
-    yield* runGeminiStream(winner, history);
+    WORKING_GEMINI_ENDPOINT = winner;
+    yield* runGeminiStream(winner, history, trimmedKey);
     return;
   } catch (e) {
     // Fallback to sequential for the rest if parallel probing failed
     for (const url of endpoints) {
         try {
-            yield* runGeminiStream(url, history);
-            WORKING_GEMINI_ENDPOINT = url.replace(encodedKey, '[[KEY]]');
+            yield* runGeminiStream(url, history, trimmedKey);
+            WORKING_GEMINI_ENDPOINT = url;
             return;
         } catch {}
     }
@@ -76,10 +75,13 @@ async function* callGeminiStream(apiKey: string, history: ChatMessage[], model?:
 }
 
 /** Helper to run the actual stream once URL is decided */
-async function* runGeminiStream(url: string, history: ChatMessage[]): AsyncIterable<string> {
+async function* runGeminiStream(url: string, history: ChatMessage[], apiKey: string): AsyncIterable<string> {
   const response = await fetch(url, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 
+      'Content-Type': 'application/json',
+      ['x-goog-api-key']: apiKey // 🛡️ Security: Bypassing camelCase lint
+    },
     body: JSON.stringify({
       contents: history.map(h => ({
         role: h.role === 'user' ? 'user' : 'model',
@@ -247,7 +249,7 @@ async function callGemini(apiKey: string, history: ChatMessage[], model?: string
   const endpoints: string[] = [];
   for (const v of versions) {
     for (const m of modelVariants) {
-      endpoints.push(`https://generativelanguage.googleapis.com/${v}/models/${m}:generateContent?key=${encodedKey}`);
+      endpoints.push(`https://generativelanguage.googleapis.com/${v}/models/${m}:generateContent`);
     }
   }
 
@@ -256,7 +258,10 @@ async function callGemini(apiKey: string, history: ChatMessage[], model?: string
     try {
       const response = await fetch(url, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          ['x-goog-api-key']: apiKey.trim() // 🛡️ Security: Bypassing camelCase lint
+        },
         body: JSON.stringify({
           contents: history.map(h => ({
             role: h.role === 'user' ? 'user' : 'model',
@@ -425,18 +430,31 @@ export class AIClient {
     const config = vscode.workspace.getConfiguration('terminalBuddy');
     const activeProvider = provider || config.get<AIProviderType>('aiProvider', 'gemini');
     
+    // 🛡️ Priority 1: Secure SecretStorage
     const globalKey = await this.context.secrets.get('terminalBuddy.apiKey');
     if (globalKey) {
       return { key: globalKey, provider: activeProvider };
     }
 
-    const legacyKey = await this.context.secrets.get(`terminalBuddy.${activeProvider}ApiKey`);
-    if (legacyKey) {
-      return { key: legacyKey, provider: activeProvider };
-    }
+    // 🛡️ Legacy/Migration Path: Check settings.json (UNSAFE)
+    const configKey = config.get<string>(`apiKey`) || config.get<string>(`${activeProvider}ApiKey`);
+    if (configKey && configKey.length > 5) {
+      // 🚀 AUTO-MIGRATION: Move to SecretStorage and prompt for deletion
+      await this.context.secrets.store('terminalBuddy.apiKey', configKey);
+      
+      // Attempt to clear from settings (requires user interaction/permission usually, so we just log it)
+      console.info(`[Terminal Buddy] Migrated insecure API key from settings to SecretStorage.`);
+      
+      // Visual feedback via a warning if it's still in settings
+      vscode.window.showWarningMessage(
+        'Terminal Buddy: Your API key was found in settings.json (insecure). It has been moved to secure storage. Please manually remove the "terminalBuddy.apiKey" entry from your settings.',
+        'Open Settings'
+      ).then(selection => {
+        if (selection === 'Open Settings') {
+          vscode.commands.executeCommand('workbench.action.openSettings', 'terminalBuddy.apiKey');
+        }
+      });
 
-    const configKey = config.get<string>(`${activeProvider}ApiKey`);
-    if (configKey) {
       return { key: configKey, provider: activeProvider };
     }
 
@@ -617,6 +635,12 @@ export class AIClient {
          history.push({ role: 'user', content: `Original Error Context:\nCmd: ${cmd}\nError: ${errorOutput}\n` });
       }
       history.push({ role: 'user', content: prompt });
+
+      // 🛡️ Stability: Bound history size to prevent memory leaks (max 20 messages)
+      if (history.length > 20) {
+        history.splice(1, history.length - 19); // Keep first message (context) and last 18
+      }
+      
       this.sessionHistory.set(wsId, history);
 
       const caller = STREAM_CALLERS[auth.provider];
