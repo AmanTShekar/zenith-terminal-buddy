@@ -58,16 +58,21 @@ export class TerminalWatcher implements vscode.Disposable {
   private historyLimit: number;
   private portMonitor?: any;
   private readonly terminalIds = new Map<vscode.Terminal, string>();
-  private shellIntegrationAvailable = false;
+  private readonly shellIntegration = new Map<vscode.Terminal, boolean>();
   private debounceTimers = new Map<vscode.Terminal, NodeJS.Timeout>();
+  private pendingPurposeRequests = new Set<string>();
+  private lastBuddyTerminal?: vscode.Terminal;
 
   public getTerminalId(terminal: vscode.Terminal): string {
     if (!this.terminalIds.has(terminal)) {
-      // Creation time isn't explicitly available, so we use current time when first seen
       const id = `term-${terminal.name}-${Date.now()}`;
       this.terminalIds.set(terminal, id);
     }
     return this.terminalIds.get(terminal)!;
+  }
+
+  public setLastBuddyTerminal(terminal: vscode.Terminal): void {
+    this.lastBuddyTerminal = terminal;
   }
 
   constructor(historyLimit: number = 100, aiClient?: any, portMonitor?: any) {
@@ -81,9 +86,8 @@ export class TerminalWatcher implements vscode.Disposable {
     // ── Shell Integration: command start ────────────────────────────────
     this.disposables.push(
       vscode.window.onDidStartTerminalShellExecution(async (e) => {
-        this.shellIntegrationAvailable = true;
         const terminal = e.terminal;
-        // e.execution is TerminalShellExecution — has commandLine, cwd, read()
+        this.shellIntegration.set(terminal, true);
         const execution = e.execution;
         const cmd = execution.commandLine?.value ?? '';
         const cwd = execution.cwd?.fsPath ?? '';
@@ -98,15 +102,12 @@ export class TerminalWatcher implements vscode.Disposable {
           startTime: Date.now(),
         });
 
-        // Track history
         const h = this.history.get(termId) || [];
         h.push({ cmd });
-        if (h.length > this.historyLimit) h.shift();
+        if (h.length > this.historyLimit) { h.shift(); }
         this.history.set(termId, h);
 
         this._onCommandStart.fire({ id, cmd, cwd, terminalId: termId, terminalName: terminal.name });
-
-        // Read output stream from the execution object
         this.readExecutionOutput(terminal, execution);
       }),
     );
@@ -130,7 +131,7 @@ export class TerminalWatcher implements vscode.Disposable {
           exitCode,
           tag: tagCommand(buffer.cmd),
           timestamp: buffer.startTime,
-          isAgentRun: this.detectAgentRun(),
+          isAgentRun: this.detectAgentRun(terminal),
           errorOutput: status === 'error' ? stripAnsi(buffer.output).substring(0, MAX_ERROR_OUTPUT_LENGTH) : undefined,
           durationMs: Date.now() - buffer.startTime,
           terminalId: this.getTerminalId(terminal),
@@ -147,6 +148,7 @@ export class TerminalWatcher implements vscode.Disposable {
     // ── Terminal closed: finalize any pending command ────────────────────
     this.disposables.push(
       vscode.window.onDidCloseTerminal((terminal) => {
+        const termId = this.terminalIds.get(terminal);
         const buffer = this.buffers.get(terminal);
         if (buffer) {
           const entry: CommandEntry = {
@@ -158,8 +160,10 @@ export class TerminalWatcher implements vscode.Disposable {
             exitCode: null,
             tag: tagCommand(buffer.cmd),
             timestamp: buffer.startTime,
-            isAgentRun: this.detectAgentRun(),
+            isAgentRun: this.detectAgentRun(terminal),
             errorOutput: 'Terminal closed before command finished',
+            terminalId: termId || 'unknown',
+            terminalName: terminal.name,
           };
           if (this.isMeaningfulCommand(buffer.cmd)) {
             this._onCommandFinished.fire(entry);
@@ -168,21 +172,29 @@ export class TerminalWatcher implements vscode.Disposable {
         }
         this.debounceTimers.delete(terminal);
         this.terminalIds.delete(terminal);
-        this.purposeCache.delete(this.getTerminalId(terminal));
+        this.shellIntegration.delete(terminal);
+        if (termId) {
+          this.purposeCache.delete(termId);
+          this.history.delete(termId);
+          this.pendingPurposeRequests.delete(termId);
+        }
+        if (this.lastBuddyTerminal === terminal) {
+          this.lastBuddyTerminal = undefined;
+        }
       }),
     );
 
     // ── Fallback: Raw Terminal Data (for non-integrated shells) ─────────
     this.disposables.push(
       (vscode.window as any).onDidWriteTerminalData((e: any) => {
-        if (this.shellIntegrationAvailable) { return; } // Skip fallback if integration is active
-        
         const terminal = e.terminal;
+        if (this.shellIntegration.get(terminal)) { return; }
+        
         let buf = this.buffers.get(terminal);
         if (!buf) {
           buf = {
             id: generateId(),
-            cmd: '(Raw Stream)', // We can't easily distinguish command from output here
+            cmd: '(Raw Stream)',
             cwd: vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '',
             output: '',
             startTime: Date.now(),
@@ -196,33 +208,31 @@ export class TerminalWatcher implements vscode.Disposable {
 
         this._onData.fire({ terminal, data: text });
 
-        // Cap buffer
         if (buf.output.length > MAX_BUFFER_SIZE) {
           buf.output = buf.output.slice(-MAX_BUFFER_SIZE / 2);
         }
 
-        // Debounce: If no data for X ms, consider the command "finished" if output has error patterns
         if (this.debounceTimers.has(terminal)) {
           clearTimeout(this.debounceTimers.get(terminal)!);
         }
 
         this.debounceTimers.set(terminal, setTimeout(() => {
           this.finalizeRawBuffer(terminal);
-        }, DEBOUNCE_TERMINAL_MS * 10)); // Longer debounce for raw stream
+        }, DEBOUNCE_TERMINAL_MS * 10));
       }),
     );
 
     // ── Shell integration availability notification ─────────────────────
     this.disposables.push(
       vscode.window.onDidChangeTerminalShellIntegration((e) => {
-        this.shellIntegrationAvailable = true;
+        this.shellIntegration.set(e.terminal, true);
       }),
     );
   }
 
   private finalizeRawBuffer(terminal: vscode.Terminal): void {
     const buffer = this.buffers.get(terminal);
-    if (!buffer || this.shellIntegrationAvailable) { return; }
+    if (!buffer || this.shellIntegration.get(terminal)) { return; }
 
     const output = buffer.output;
     const hasError = /error|failed|exception|not recognized|not found/i.test(output);
@@ -237,13 +247,12 @@ export class TerminalWatcher implements vscode.Disposable {
         exitCode: 1,
         tag: 'other',
         timestamp: buffer.startTime,
-        isAgentRun: false,
+        isAgentRun: this.detectAgentRun(terminal),
         errorOutput: this.extractErrorOutput(output),
       };
       this._onCommandFinished.fire(entry);
     }
     
-    // Refresh buffer for next stream
     buffer.id = generateId();
     buffer.output = '';
     buffer.startTime = Date.now();
@@ -278,18 +287,28 @@ export class TerminalWatcher implements vscode.Disposable {
 
   private getCachedPurpose(id: string, terminal: vscode.Terminal, buffer?: ExecutionBuffer): string {
     const heuristic = this.guessTerminalPurpose(terminal, buffer);
-    if (heuristic !== 'Idle Terminal') return heuristic;
+    if (heuristic !== 'Idle Terminal') {
+      return heuristic;
+    }
     
     const cached = this.purposeCache.get(id);
-    if (cached) return cached;
+    if (cached) {
+      return cached;
+    }
 
-    // Trigger async AI description if idle and no cache
-    if (this.aiClient) {
-      // Get recent history for this terminal to give AI context
+    if (this.aiClient && !this.pendingPurposeRequests.has(id)) {
+      this.pendingPurposeRequests.add(id);
       const history = (this.history.get(id) || []).slice(-3).map(h => h.cmd).join('\n');
       this.aiClient.describeTerminal(terminal.name, history).then((desc: string) => {
         this.purposeCache.set(id, desc);
+        this.pendingPurposeRequests.delete(id);
+      }).catch(() => {
+        this.pendingPurposeRequests.delete(id);
       });
+    }
+
+    if (this.pendingPurposeRequests.has(id)) {
+      return 'Analyzing...';
     }
 
     return 'Idle Terminal';
@@ -298,22 +317,21 @@ export class TerminalWatcher implements vscode.Disposable {
   private guessTerminalPurpose(terminal: vscode.Terminal, buffer?: ExecutionBuffer): string {
     if (buffer) {
       const cmd = buffer.cmd.toLowerCase();
-      if (cmd.includes('dev') || cmd.includes('start')) return 'Development Server';
-      if (cmd.includes('test')) return 'Running Tests';
-      if (cmd.includes('build')) return 'Building Project';
-      if (cmd.includes('git')) return 'Git Operations';
+      if (cmd.includes('dev') || cmd.includes('start')) { return 'Development Server'; }
+      if (cmd.includes('test')) { return 'Running Tests'; }
+      if (cmd.includes('build')) { return 'Building Project'; }
+      if (cmd.includes('git')) { return 'Git Operations'; }
     }
     const name = terminal.name.toLowerCase();
-    if (name.includes('node') || name.includes('npm')) return 'JavaScript Runtime';
-    if (name.includes('python')) return 'Python Environment';
-    if (name.includes('zsh') || name.includes('bash') || name.includes('fish')) return 'Interactive Shell';
+    if (name.includes('node') || name.includes('npm')) { return 'JavaScript Runtime'; }
+    if (name.includes('python')) { return 'Python Environment'; }
+    if (name.includes('zsh') || name.includes('bash') || name.includes('fish')) { return 'Interactive Shell'; }
     return 'Idle Terminal';
   }
 
   public stopCommand(id: string): void {
     for (const [terminal, buffer] of this.buffers.entries()) {
       if (buffer.id === id) {
-        // Send Ctrl+C (Interrupt) to the terminal
         terminal.sendText('\x03');
         return;
       }
@@ -331,37 +349,27 @@ export class TerminalWatcher implements vscode.Disposable {
       const stream = execution.read();
       if (!stream) { return; }
 
-      for await (const chunk of stream as AsyncIterable<any>) {
-        if (!this.buffers.has(terminal)) { break; } // terminal or command gone
+      for await (const chunk of stream as AsyncIterable<string>) {
+        if (!this.buffers.has(terminal)) { break; }
 
-        const text = typeof chunk === 'string' ? chunk : String(chunk);
-        
-        // 🛡️ Sensitivity Detection
+        const text = chunk;
         if (/[Pp]assword:|PASS[:=]|SECRET[:=]/i.test(text)) {
             this._onSensitivityDetected.fire(terminal);
-            // We still log the command as a placeholder but redact the subsequent output
             continue; 
         }
 
-        const cleaned = redact(stripAnsi(text));
-        
-        this._onData.fire({ terminal, data: cleaned });
-
-        // Cap buffer size using a sliding window for long-running processes
-        if (buffer.output.length + cleaned.length > MAX_BUFFER_SIZE) {
-          buffer.output = (buffer.output + cleaned).slice(-MAX_BUFFER_SIZE);
+        if (buffer.output.length + text.length > MAX_BUFFER_SIZE) {
+          buffer.output = (buffer.output + text).slice(-MAX_BUFFER_SIZE);
         } else {
-          buffer.output += cleaned;
+          buffer.output += text;
         }
       }
-    } catch {
-      // Stream may close unexpectedly — that's ok
-    }
+    } catch { }
   }
 
   private extractErrorOutput(output: string): string {
     const lines = output.trim().split('\n');
-    const lastLines = lines.slice(-30); // Last 30 lines for context
+    const lastLines = lines.slice(-30);
     const joined = lastLines.join('\n');
     return joined.length > MAX_ERROR_OUTPUT_LENGTH
       ? joined.slice(-MAX_ERROR_OUTPUT_LENGTH)
@@ -374,10 +382,8 @@ export class TerminalWatcher implements vscode.Disposable {
     return parts[parts.length - 1] || 'unknown';
   }
 
-  private detectAgentRun(): boolean {
-    // Heuristic: if no terminal is "active" (focused by user), it's likely agent-run
-    const activeTerminal = vscode.window.activeTerminal;
-    return !activeTerminal;
+  private detectAgentRun(terminal: vscode.Terminal): boolean {
+    return this.lastBuddyTerminal === terminal;
   }
 
   dispose(): void {
@@ -392,6 +398,7 @@ export class TerminalWatcher implements vscode.Disposable {
     }
     this.debounceTimers.clear();
     this.terminalIds.clear();
+    this.shellIntegration.clear();
     for (const d of this.disposables) {
       d.dispose();
     }
@@ -399,14 +406,12 @@ export class TerminalWatcher implements vscode.Disposable {
 
   private isMeaningfulCommand(cmd: string): boolean {
     const c = cmd.trim();
-    if (!c) return false;
-    // Allow greetings and common short inputs
+    if (!c) { return false; }
     const greetings = ['hi', 'hello', 'hey', 'yo', 'sup', 'test', 'foo', 'bar', 'ping'];
-    if (greetings.includes(c.toLowerCase())) return true;
-    
-    if (c.length < 2 && !['l', 'p', 's', 'w', 'q'].includes(c)) return false; 
-    if (c.startsWith('\x1b')) return false; 
-    if (c.includes('\ufffd')) return false; 
+    if (greetings.includes(c.toLowerCase())) { return true; }
+    if (c.length < 2 && !['l', 'p', 's', 'w', 'q'].includes(c)) { return false; }
+    if (c.startsWith('\x1b')) { return false; } 
+    if (c.includes('\ufffd')) { return false; } 
     return true;
   }
 }

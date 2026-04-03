@@ -21,12 +21,14 @@ function execGit(args: string[], cwd: string): Promise<string> {
 
 export class GitHelper {
   private cache: { status: GitStatus; path: string; at: number } | null = null;
+  private treeCache: { tree: any; path: string; at: number } | null = null;
   private gitAvailable: boolean | null = null;
 
   async isGitInstalled(): Promise<boolean> {
     if (this.gitAvailable !== null) { return this.gitAvailable; }
     try {
-      await execGit(['--version'], '.');
+      const home = process.env.USERPROFILE || process.env.HOME || '.';
+      await execGit(['--version'], home);
       this.gitAvailable = true;
     } catch {
       this.gitAvailable = false;
@@ -118,8 +120,8 @@ export class GitHelper {
           cwd,
         );
         const parts = log.split('|');
-        lastCommitMessage = parts[0] ?? '';
-        lastCommitTime = parts.slice(1).join('|') ?? '';
+        lastCommitMessage = parts[0] || '';
+        lastCommitTime = parts.slice(1).join('|') || '';
       } catch { /* empty repo */ }
 
       const status: GitStatus = {
@@ -206,11 +208,32 @@ export class GitHelper {
 
   async getDetailedTree(cwd: string): Promise<any> {
     if (!cwd) return null;
+
+    // Check Cache
+    if (this.treeCache && this.treeCache.path === cwd && Date.now() - this.treeCache.at < GIT_CACHE_TTL_MS) {
+      return this.treeCache.tree;
+    }
+
     try {
       // Get all tracked and untracked files with status
+      // We use a slightly longer timeout for this specific heavy operation to avoid premature aborts on large repos,
+      // but still keep it capped to prevent locking the extension host.
       const porcelain = await execGit(['-C', cwd, 'status', '--porcelain', '-uall'], cwd);
       const lines = porcelain.split('\n').filter(Boolean);
       
+      // Safety Cap: Maximum files to process for the visual tree
+      const MAX_TREE_FILES = 400;
+      if (lines.length > MAX_TREE_FILES) {
+        return { 
+          name: 'root', 
+          status: 'modified', 
+          children: [{ 
+            name: `Large Repo Alert: ${lines.length} changed items detected. Showing summarized view.`, 
+            status: 'warning' 
+          }] 
+        };
+      }
+
       const tree: any = { name: 'root', children: {}, status: 'clean' };
 
       for (const line of lines) {
@@ -219,39 +242,58 @@ export class GitHelper {
         const parts = relPath.split(/[\\\/]/);
         
         let curr = tree;
-        for (let i = 0; i < parts.length; i++) {
-          const part = parts[i];
+        // Limit path depth to prevent memory spikes
+        const MAX_PATH_DEPTH = 8;
+        const effectiveParts = parts.slice(0, MAX_PATH_DEPTH);
+
+        for (let i = 0; i < effectiveParts.length; i++) {
+          const part = effectiveParts[i];
+          
+          if (!curr.children || typeof curr.children !== 'object') {
+            break; 
+          }
+
           if (!curr.children[part]) {
             curr.children[part] = { 
               name: part, 
-              children: i === parts.length - 1 ? null : {}, 
+              children: i === effectiveParts.length - 1 ? null : {}, 
               status: 'clean' 
             };
           }
           // Propagate status up
           if (status !== 'clean') {
             curr.children[part].status = status;
-            curr.status = 'modified'; // Parent is modified if child is
+            curr.status = 'modified'; 
           }
           curr = curr.children[part];
         }
       }
 
-      return this.simplifyTree(tree);
+      const result = this.simplifyTree(tree, 0);
+      this.treeCache = { tree: result, path: cwd, at: Date.now() };
+      return result;
     } catch {
       return null;
     }
   }
 
-  private simplifyTree(node: any): any {
-    if (!node.children) return { name: node.name, status: node.status };
+  private simplifyTree(node: any, depth: number): any {
+    // Hard recursion limit
+    if (depth > 10 || !node) {
+      return { name: node?.name || '...', status: 'warning' };
+    }
+
+    if (node.children === null || typeof node.children !== 'object') {
+      return { name: node.name || 'unknown', status: node.status || 'clean' };
+    }
     
     return {
       name: node.name,
       status: node.status,
-      children: Object.values(node.children).map(c => this.simplifyTree(c))
+      children: Object.values(node.children).map(c => this.simplifyTree(c, depth + 1))
     };
   }
+
 
   async getRemoteUrl(cwd: string): Promise<string | null> {
     if (!cwd) return null;

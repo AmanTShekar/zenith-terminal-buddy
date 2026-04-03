@@ -25,7 +25,7 @@ const DANGEROUS_PATTERNS: Array<{ pattern: RegExp; level: 'high' | 'medium'; msg
     msg: 'Recursively deleting root, home, or all files is extremely dangerous.',
   },
   {
-    pattern: /:(\(\)\s*{\s*:|:&}\s*;:)/, // Fork bomb
+    pattern: /:\(\)\s*\{\s*:\s*\|\s*:&\s*\}\s*;:/, // Fork bomb
     level: 'high',
     msg: 'This is a fork bomb designed to crash your system.',
   },
@@ -85,20 +85,33 @@ export class SafetyEngine {
       }
     }
 
-    // 2. AI-based deep audit for complex commands
-    // 2. Only run AI audit for commands that: contain pipes, backticks, redirects, or are >50 chars
+    // 2. AI-based deep audit for complex commands: contain pipes, backticks, redirects, or are >50 chars
     const isComplexCmd = /[|`;&>\\]/.test(trimmedCmd) || trimmedCmd.length > 50;
     if (isComplexCmd) {
       try {
         const prompt = securityAuditPrompt(trimmedCmd, cwd, projectType);
         const res = await this.aiClient.callRaw(prompt);
         if (res) {
-          // 🛡️ Security: Validate AI response shape before trusting it
-          const parsed = JSON.parse(res);
-          if (typeof parsed.isDangerous === 'boolean') {
+          // 🛡️ Security: Extract and validate AI JSON response
+          let parsed;
+          try {
+            const cleaned = res.replace(/^```json/m, '').replace(/```$/m, '').trim();
+            parsed = JSON.parse(cleaned);
+          } catch {
+            // Robust extraction: try to find the largest bracketed block
+            const start = res.indexOf('{');
+            const end = res.lastIndexOf('}');
+            if (start !== -1 && end !== -1 && end > start) {
+              try {
+                parsed = JSON.parse(res.substring(start, end + 1));
+              } catch (e2) { /* last resort failed */ }
+            }
+          }
+
+          if (parsed && (typeof parsed.isDangerous === 'boolean' || typeof parsed.riskLevel === 'string')) {
             const validLevels = new Set(['none', 'low', 'medium', 'high']);
             const aiReport: SafetyReport = {
-              isDangerous: parsed.isDangerous,
+              isDangerous: !!parsed.isDangerous,
               riskLevel: validLevels.has(parsed.riskLevel) ? parsed.riskLevel : 'medium',
               explanation: typeof parsed.explanation === 'string' && parsed.explanation.length < 500
                 ? parsed.explanation

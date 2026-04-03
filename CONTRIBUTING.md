@@ -38,14 +38,28 @@ We use automated GitHub Releases to distribute the extension. To trigger a new r
 
 ## 🛡️ Security & Branch Protection
 
-To maintain code quality and security:
+To maintain code quality and security, the following branch protection rules are **highly recommended** for the `main` branch.
 
-1.  **Main Branch Protection**: The `main` branch is configured to require all status checks to pass before merging.
-2.  **Required Checks**: 
-    - `CI` (Build, Lint, Tests)
-    - `CodeQL` (Security Analysis)
-3.  **No Direct Pushes**: All changes should come via Pull Requests.
- break the build will not be merged.
+### 📝 Recommended Branch Protection Settings
+
+| Setting | Recommendation |
+| :--- | :--- |
+| **Require Pull Requests before merging** | **Enabled** |
+| **Required number of approvals** | **1** (Minimal for safety) |
+| **Dismiss stale approvals** | **Enabled** (Ensures new code is reviewed) |
+| **Require review from Code Owners** | **Enabled** (Defined in [.github/CODEOWNERS](.github/CODEOWNERS)) |
+| **Require status checks to pass** | **Enabled** (`CI`, `CodeQL`) |
+| **Require approval of most recent push** | **Enabled** |
+| **Require conversation resolution** | **Enabled** |
+
+### 🔍 How to Enable
+Go to **Settings** > **Branches** > **Add rule** > Branch name pattern: `main` > Check the boxes matching the table above.
+
+### Required Checks
+- `CI` (Build, Lint, Tests)
+- `CodeQL` (Security Analysis)
+
+All changes should come via Pull Requests. Direct pushes to `main` are restricted.
 7.  **Submit a Pull Request**: Use our [PR Template](.github/PULL_REQUEST_TEMPLATE.md) for faster review.
 
 ## Code Style & Standards

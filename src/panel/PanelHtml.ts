@@ -1,6 +1,5 @@
-export function getPanelBody(): string {
+export function getPanelContent(): string {
   return [
-    '<body>',
     '  <div id="warn-bar"></div>',
     '  <div id="hdr">',
     '    <div class="logo">Terminal Buddy</div>',
@@ -52,6 +51,13 @@ export function getPanelBody(): string {
     '            <option value="warn">Warn</option>',
     '            <option value="err">Error</option>',
     '          </select>',
+    '          <select id="project-filter" class="filter-select">',
+    '            <option value="all">All Projects</option>',
+    '          </select>',
+    '          <select id="sort-filter" class="filter-select">',
+    '            <option value="asc">Newest First</option>',
+    '            <option value="desc">Oldest First</option>',
+    '          </select>',
     '        </div>',
     '      </div>',
     '      <div class="scroll" id="log-list"><div class="empty"><div class="empty-icon">📋</div><div class="empty-text">No commands yet.</div></div></div>',
@@ -86,6 +92,5 @@ export function getPanelBody(): string {
     '      </div>',
     '    </div>',
     '  </div>',
-    '</body>'
   ].join('\n');
 }
