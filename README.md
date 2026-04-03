@@ -1,4 +1,4 @@
-  <img src="docs/assets/logo.jpg" alt="Terminal Buddy Banner" width="100%">
+  <img src="(https://github.com/AmanTShekar/zenith-terminal-buddy/blob/main/logo%20terminal%20buddy.jpg)" alt="Terminal Buddy Banner" width="100%">
   
   <h1>🐱 Terminal Buddy</h1>
   <p><b>A Knowledgeable Companion for Your VS Code Terminal</b></p>
