@@ -1,9 +1,6 @@
 import * as assert from 'assert';
-
-// You can import and use all API from the 'vscode' module
-// as well as import your extension to test it
 import * as vscode from 'vscode';
-// import * as myExtension from '../../extension';
+import { suite, test } from 'mocha';
 
 suite('Extension Test Suite', () => {
 	vscode.window.showInformationMessage('Start all tests.');
@@ -22,6 +19,32 @@ suite('Extension Test Suite', () => {
         if (ext) {
             await ext.activate();
             assert.strictEqual(ext.isActive, true);
+        }
+    });
+
+    test('All commands should be registered', async () => {
+        const commands = await vscode.commands.getCommands(true);
+        const expectedCommands = [
+            'terminalBuddy.openPanel',
+            'terminalBuddy.analyzeTerminal',
+            'terminalBuddy.explainError',
+            'terminalBuddy.setApiKey',
+            'terminalBuddy.clearHistory'
+        ];
+        
+        for (const cmd of expectedCommands) {
+            assert.ok(commands.includes(cmd), `Command ${cmd} should be registered`);
+        }
+    });
+
+    test('Webview view provider should be available', async () => {
+        // This test ensures the side bar view can be opened
+        // We trigger the command to show the panel
+        try {
+            await vscode.commands.executeCommand('terminalBuddy.openPanel');
+            assert.ok(true, 'Command terminalBuddy.openPanel should execute');
+        } catch (e) {
+            assert.fail('Failed to execute terminalBuddy.openPanel: ' + e);
         }
     });
 });

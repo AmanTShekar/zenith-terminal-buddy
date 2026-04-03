@@ -61,7 +61,7 @@ export class TerminalWatcher implements vscode.Disposable {
   private shellIntegrationAvailable = false;
   private debounceTimers = new Map<vscode.Terminal, NodeJS.Timeout>();
 
-  private getTerminalId(terminal: vscode.Terminal): string {
+  public getTerminalId(terminal: vscode.Terminal): string {
     if (!this.terminalIds.has(terminal)) {
       // Creation time isn't explicitly available, so we use current time when first seen
       const id = `term-${terminal.name}-${Date.now()}`;

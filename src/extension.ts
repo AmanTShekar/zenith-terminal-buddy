@@ -13,7 +13,7 @@ import { PetManager } from './pet/PetManager';
 import { AIClient } from './ai/AIClient';
 import { SafetyEngine } from './core/SafetyEngine';
 import { TerminalPetProvider } from './ui/TerminalPetProvider';
-import { PortMonitor } from './core/PortMonitor';
+import { SystemPortMonitor } from './core/PortMonitor';
 import { ExecutableScanner } from './core/ExecutableScanner';
 import { TerminalCompletionProvider, TerminalInlineCompletionProvider } from './core/TerminalCompletionProvider';
 import { SCANNER_DELAY_MS, CommandEntry, WorkspaceMap } from './types';
@@ -35,7 +35,7 @@ export function activate(context: vscode.ExtensionContext): void {
   const terminalWatcher = new TerminalWatcher(100, aiClient);
   const safetyEngine = new SafetyEngine(aiClient);
   const petProvider = new TerminalPetProvider(commandLogger);
-  const portMonitor = new PortMonitor();
+  const portMonitor = new SystemPortMonitor();
   const executableScanner = new ExecutableScanner();
 
   // ── AI Burst Protection State ─────────────────────────────────────────────

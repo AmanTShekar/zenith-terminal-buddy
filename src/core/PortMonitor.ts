@@ -1,8 +1,8 @@
-import * as child_process from 'child_process';
+import * as childProcess from 'child_process';
 import * as util from 'util';
 import * as vscode from 'vscode';
 
-const exec = util.promisify(child_process.exec);
+const exec = util.promisify(childProcess.exec);
 const EXEC_TIMEOUT_MS = 5000;
 
 export interface ActivePort {
@@ -12,12 +12,12 @@ export interface ActivePort {
   protocol: 'TCP' | 'UDP';
 }
 
-export class PortMonitor {
-  private static readonly COMMON_PORTS = [
+export class SystemPortMonitor {
+  private static readonly commonPorts = [
     3000, 3001, 5000, 5001, 5173, 8000, 8888, 4200, 3333
   ];
 
-  private static readonly NOISE_PORTS = [
+  private static readonly noisePorts = [
     5432, 3306, 6379, 27017, // Databases
     5037, // ADB
     13030, 13031, 13032, // VS Code / Tool internal
@@ -56,10 +56,10 @@ export class PortMonitor {
         // STRICT DEV FILTERING
         const isSystemPort = port < 1024;
         const isDynamicRange = port >= 49152; // IANA Dynamic ports
-        const isBlacklisted = PortMonitor.NOISE_PORTS.includes(port) || (port >= 135 && port <= 139) || port === 445;
+        const isBlacklisted = SystemPortMonitor.noisePorts.includes(port) || (port >= 135 && port <= 139) || port === 445;
 
         if (!seen.has(port) && !isSystemPort && !isBlacklisted) {
-          const isCommon = PortMonitor.COMMON_PORTS.includes(port);
+          const isCommon = SystemPortMonitor.commonPorts.includes(port);
           const isLikelyDev = (port >= 3000 && port < 10000) || (port >= 30000 && port < 40000);
 
           if (scanAll || isCommon || (isLikelyDev && !isDynamicRange)) {
@@ -82,7 +82,9 @@ export class PortMonitor {
     for (const line of lines) {
       // node      12345 user   22u  IPv6 0x...      0t0  TCP *:3000 (LISTEN)
       const parts = line.trim().split(/\s+/);
-      if (parts.length < 9) continue;
+      if (parts.length < 9) {
+        continue;
+      }
 
       const name = parts[0];
       const pid = parseInt(parts[1]);
@@ -92,8 +94,8 @@ export class PortMonitor {
       if (portMatch) {
         const port = parseInt(portMatch[1]);
         const isSystemPort = port < 1024;
-        const isBlacklisted = PortMonitor.NOISE_PORTS.includes(port);
-        const isCommon = PortMonitor.COMMON_PORTS.includes(port);
+        const isBlacklisted = SystemPortMonitor.noisePorts.includes(port);
+        const isCommon = SystemPortMonitor.commonPorts.includes(port);
         const isLikelyDev = (port >= 3000 && port < 10000) || (port >= 30000 && port < 40000);
 
         if (!seen.has(port) && !isSystemPort && !isBlacklisted) {

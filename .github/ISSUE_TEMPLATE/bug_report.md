@@ -24,9 +24,10 @@ A clear and concise description of what you expected to happen.
 If applicable, add screenshots to help explain your problem.
 
 **Environment (please complete the following information):**
- - OS: [e.g. Windows, macOS]
- - VS Code Version: [e.g. 1.80.0]
- - Terminal Buddy Version: [e.g. 1.0.0]
+- VS Code Version: [e.g. 1.93.0]
+- Extension Version: [e.g. 0.0.1]
+- OS: [e.g. Windows, macOS, Linux]
+- AI Provider: [e.g. Gemini, Groq]
 
 **Additional context**
-Add any other context about the problem here.
+Add any other context about the problem here (e.g. terminal logs).

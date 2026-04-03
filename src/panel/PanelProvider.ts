@@ -1,4 +1,3 @@
-// @ts-nocheck — Webview JS inside template literals is not TypeScript; suppress false positives
 import * as vscode from 'vscode';
 import * as crypto from 'crypto';
 import { CommandLogger } from '../core/CommandLogger';
@@ -10,11 +9,14 @@ import { SuggestionEngine } from '../core/SuggestionEngine';
 import { PetManager } from '../pet/PetManager';
 import { AIClient } from '../ai/AIClient';
 import { TerminalWatcher } from '../core/TerminalWatcher';
-import { PortMonitor, ActivePort } from '../core/PortMonitor';
+import { SystemPortMonitor, ActivePort } from '../core/PortMonitor';
 import { ExecutableScanner } from '../core/ExecutableScanner';
 import { EnvDiffChecker } from '../core/EnvDiffChecker';
 import { CommandEntry, WorkspaceMap, GitStatus, Suggestion, PetState } from '../types';
 import { chatPrompt } from '../ai/prompts';
+import { PANEL_CSS } from './PanelStyles';
+import { PANEL_JS } from './PanelScripts';
+import { getPanelBody } from './PanelHtml';
 
 interface PanelMessage { type: string; payload?: any; }
 
@@ -33,7 +35,7 @@ export class PanelProvider implements vscode.WebviewViewProvider {
     private readonly petManager: PetManager,
     private readonly aiClient: AIClient,
     private readonly terminalWatcher: TerminalWatcher,
-    private readonly portMonitor: PortMonitor,
+    private readonly portMonitor: SystemPortMonitor,
     private readonly executableScanner: ExecutableScanner
   ) {}
 
@@ -287,15 +289,9 @@ export class PanelProvider implements vscode.WebviewViewProvider {
   }
 
   private getHtml(webview: vscode.Webview): string {
-    const nonce = crypto.randomBytes(16).toString('hex');
-    const src = webview.cspSource;
-    const csp = [
-      "default-src 'none'",
-      "style-src 'unsafe-inline' " + src,
-      "img-src " + src + " data: https:",
-      "script-src 'nonce-" + nonce + "'",
-    ].join('; ');
-    const js = this.getWebviewScript();
+    const nonce = crypto.randomBytes(16).toString('base64');
+    const csp = `default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}'; img-src ${webview.cspSource} https: data:;`;
+    
     return [
       '<!DOCTYPE html>',
       '<html lang="en">',
@@ -303,11 +299,11 @@ export class PanelProvider implements vscode.WebviewViewProvider {
       '<meta charset="UTF-8">',
       '<meta name="viewport" content="width=device-width,initial-scale=1.0">',
       '<meta http-equiv="Content-Security-Policy" content="' + csp + '">',
-      '<style>' + this.getCss() + '</style>',
+      '<style>' + PANEL_CSS + '</style>',
       '</head>',
-      this.getBody(),
+      getPanelBody(),
       '<script nonce="' + nonce + '">',
-      js,
+      PANEL_JS,
       '</script>',
       '</body>',
       '</html>',

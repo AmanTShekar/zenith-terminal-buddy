@@ -1,5 +1,4 @@
-<div align="center">
-  <img src="assets/logo.jpg" alt="Terminal Buddy Banner" width="100%">
+  <img src="docs/assets/logo.jpg" alt="Terminal Buddy Banner" width="100%">
   
   <h1>🐱 Terminal Buddy</h1>
   <p><b>A Knowledgeable Companion for Your VS Code Terminal</b></p>
@@ -82,7 +81,8 @@ Detailed feature breakdown available in [Features Documentation](docs/features.m
 1. `git clone https://github.com/AmanTShekar/zenith-terminal-buddy.git`
 2. `npm install`
 3. Press `F5` to start debugging.
-4. Run `npm run verify` before submitting PRs.
+4. **Testing**: Run `npm test` to execute the automated suite.
+5. **Verification**: Run `npm run verify` (lint + compile + build) before submitting PRs.
 
 ---
 

@@ -4,6 +4,10 @@
   "description": "Your friendly terminal companion — explains errors, suggests commands, tracks history, helps with git, and has a pet.",
   "version": "0.0.1",
   "publisher": "terminal-buddy",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/AmanTShekar/zenith-terminal-buddy.git"
+  },
   "engines": {
     "vscode": "^1.93.0"
   },
@@ -160,7 +164,7 @@
     "package": "vsce package",
     "publish": "vsce publish",
     "lint": "eslint src --ext ts",
-    "test": "node ./out/test/runTest.js",
+    "test": "node ./dist/test/runTest.js",
     "verify": "npm run lint && npm run compile && npm run build"
   },
   "devDependencies": {

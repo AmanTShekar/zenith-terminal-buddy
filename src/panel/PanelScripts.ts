@@ -27,10 +27,10 @@ export const PANEL_JS = `
           o += '<pre><code>' + esc(p[i].replace(/^\\w+\\n/, '').trim()) + '</code></pre>';
         } else {
           let s = esc(p[i]);
-          s = s.replace(/\\[LIVE:([^\\]]+)\\]/g, (m, id) => {
+          s = s.replace(/\\[LIVE:([^\\x5d]+)\\]/g, (m, id) => {
             const term = terminalsMap[id];
-            if (!term) return \`<span class="dim">[Terminal \${id} stopped]</span>\`;
-            return \`<div class="chat-live-card">
+            if (!term) return \\x60<span class="dim">[Terminal \${id} stopped]</span>\\x60;
+            return \\x60<div class="chat-live-card">
               <div class="chat-live-header">
                 <span>📺 \${esc(term.name)}</span>
                 <span class="dim">ID: \${esc(id)}</span>
@@ -38,13 +38,13 @@ export const PANEL_JS = `
               <div class="chat-live-btns">
                 <button class="chat-live-btn chat-live-focus" data-id="\${esc(id)}"><span class="chat-live-icon">🎯</span> Focus</button>
                 <button class="chat-live-btn chat-live-kill" data-id="\${esc(id)}"><span class="chat-live-icon">💀</span> Kill</button>
-                \${term.port ? \`<button class="chat-live-btn chat-live-link" data-url="http://localhost:\${term.port}"><span class="chat-live-icon">🌐</span> Port \${term.port}</button>\` : ''}
+                \${term.port ? \\x60<button class="chat-live-btn chat-live-link" data-url="http://localhost:\${term.port}"><span class="chat-live-icon">🌐</span> Port \${term.port}</button>\\x60 : ''}
               </div>
-            </div>\`;
+            </div>\\x60;
           });
-          s = s.replace(/\\*\\*([^*]+)\\*\\*/g, '<strong>\$1</strong>');
-          s = s.replace(/\\*([^*]+)\\*/g, '<em>\$1</em>');
-          s = s.replace(new RegExp(T1 + '([^' + T1 + ']+)' + T1, 'g'), '<code>\$1</code>');
+          s = s.replace(/\\*\\*([^*]+)\\*\\*/g, '<strong>$1</strong>');
+          s = s.replace(/\\*([^*]+)\\*/g, '<em>$1</em>');
+          s = s.replace(new RegExp(T1 + '([^' + T1 + ']+)' + T1, 'g'), '<code>$1</code>');
           s = s.replace(/\\n/g, '<br>');
           o += s;
         }
@@ -61,7 +61,7 @@ export const PANEL_JS = `
     return Math.floor(d / 3600) + 'h ago';
   }
 
-  function badge(n) { return n > 0 ? \`<span class="tab-badge">\${n}</span>\` : '' }
+  function badge(n) { return n > 0 ? \\x60<span class="tab-badge">\${n}</span>\\x60 : '' }
 
   // ── Tabs ──
   let errCount = 0;
@@ -145,7 +145,7 @@ export const PANEL_JS = `
     logs.forEach(l => { if (l.terminalName) terms.add(l.terminalName); });
     let h = '<option value="all">All Terms</option>';
     Array.from(terms).sort().forEach(t => {
-      h += \`<option value="\${esc(t)}">\${esc(t)}</option>\`;
+      h += \\x60<option value="\${esc(t)}">\${esc(t)}</option>\\x60;
     });
     sel.innerHTML = h;
     sel.value = activeTerm;
@@ -175,8 +175,8 @@ export const PANEL_JS = `
     list.innerHTML = filtered.reverse().map(e => {
       const cls = e.status === 'ok' ? 'ok' : e.status === 'warning' ? 'warn' : 'err';
       const icon = cls === 'ok' ? '✓' : cls === 'warn' ? '⚠' : '✗';
-      return \`
-        <div class="entry \${cls}" data-entry='\${esc(JSON.stringify(e))}'>
+      return \\x60
+        <div class="entry \${cls}" data-entry='\\x60 + esc(JSON.stringify(e)) + \\x60'>
           <div class="entry-header">
             <div class="entry-status-icon">\${icon}</div>
             <div class="entry-summary">
@@ -195,7 +195,7 @@ export const PANEL_JS = `
               \${e.errorOutput ? '<button class="btn-sm focus ask-explain-btn">🤖 Ask Buddy</button>' : ''}
             </div>
           </div>
-        </div>\`;
+        </div>\\x60;
     }).join('');
   }
 
@@ -232,7 +232,7 @@ export const PANEL_JS = `
       c.innerHTML = '<div class="empty"><div class="empty-icon">⚡</div><div class="empty-text">No active commands.</div></div>';
       return;
     }
-    c.innerHTML = cmds.map(cmd => \`<div class="live-entry">
+    c.innerHTML = cmds.map(cmd => \\x60<div class="live-entry">
       <div class="live-info" style="display:flex;align-items:center;gap:10px">
         <div class="spin"></div>
         <div style="flex:1;min-width:0">
@@ -247,9 +247,9 @@ export const PANEL_JS = `
       <div class="live-btns" style="display:flex;gap:6px;margin-top:6px">
         <button class="btn-sm kill live-kill-btn" data-id="\${cmd.terminalId}">⏹ End</button>&nbsp;
         <button class="btn-sm focus live-focus-btn" data-id="\${cmd.terminalId}">👁 Focus</button>
-        \${cmd.port ? \`&nbsp;<button class="btn-sm link live-link-btn" data-url="http://localhost:\${cmd.port}">🚀 Link</button>\` : ''}
+        \${cmd.port ? \\x60&nbsp;<button class="btn-sm link live-link-btn" data-url="http://localhost:\${cmd.port}">🚀 Link</button>\\x60 : ''}
       </div>
-    </div>\`).join('');
+    </div>\\x60).join('');
   }
 
   document.getElementById('live-list')?.addEventListener('click', e => {
@@ -269,15 +269,15 @@ export const PANEL_JS = `
       c.innerHTML = '<div class="empty"><div class="empty-icon">🔌</div><div class="empty-text">No dev servers detected.</div></div>';
       return;
     }
-    c.innerHTML = ports.map(p => \`
+    c.innerHTML = ports.map(p => \\x60
       <div class="card" style="display:flex;align-items:center;gap:10px">
         <div class="dot"></div>
         <div style="flex:1">
           <div style="font-size:12px;font-weight:600">:\${p.port}</div>
           <div style="font-size:10px;color:var(--dim)">\${esc(p.label || 'Active')}</div>
         </div>
-        \${p.pid ? \`<button class="kill-btn" data-port="\${p.port}" data-pid="\${p.pid}">Kill</button>\` : ''}
-      </div>\`).join('');
+        \${p.pid ? \\x60<button class="kill-btn" data-port="\${p.port}" data-pid="\${p.pid}">Kill</button>\\x60 : ''}
+      </div>\\x60).join('');
   }
 
   document.getElementById('ports-list')?.addEventListener('click', e => {
@@ -294,10 +294,10 @@ export const PANEL_JS = `
       return;
     }
     const existingTree = c.querySelector('.git-tree-container')?.innerHTML;
-    let h = \`<div class="branch-badge">🌿 \${esc(payload.branch || '?')}\`;
-    if (payload.aheadCount > 0) h += \` · <span style="color:var(--ok)">↑\${payload.aheadCount}</span>\`;
-    if (payload.behindCount > 0) h += \` · <span style="color:var(--warn)">↓\${payload.behindCount}</span>\`;
-    if (payload.uncommittedCount > 0) h += \` · <span style="color:var(--warn)">\${payload.uncommittedCount} changed</span>\`;
+    let h = \\x60<div class="branch-badge">🌿 \${esc(payload.branch || '?')}\\x60;
+    if (payload.aheadCount > 0) h += \\x60 · <span style="color:var(--ok)">↑\${payload.aheadCount}</span>\\x60;
+    if (payload.behindCount > 0) h += \\x60 · <span style="color:var(--warn)">↓\${payload.behindCount}</span>\\x60;
+    if (payload.uncommittedCount > 0) h += \\x60 · <span style="color:var(--warn)">\${payload.uncommittedCount} changed</span>\\x60;
     h += '</div>';
 
     function renderNode(node, depth = 0) {
@@ -306,17 +306,17 @@ export const PANEL_JS = `
       if (node.name !== 'root') {
         const isFolder = node.children && node.children.length > 0;
         if (isFolder) {
-          const folderStatus = node.status !== 'clean' ? \`status-\${node.status}\` : '';
-          html += \`<div class="tree-node folder \${folderStatus}" style="margin-left:\${depth * 8}px">📁 \${esc(node.name)}</div>\`;
+          const folderStatus = node.status !== 'clean' ? \\x60status-\${node.status}\\x60 : '';
+          html += \\x60<div class="tree-node folder \${folderStatus}" style="margin-left:\${depth * 8}px">📁 \${esc(node.name)}</div>\\x60;
         } else {
           const stRaw = (node.status || '').trim().charAt(0).toUpperCase();
           const stClass = stRaw === 'M' ? 'M' : stRaw === 'A' ? 'A' : stRaw === 'D' ? 'D' : '';
-          html += \`<div class="tree-node file" style="margin-left:\${depth * 8}px">
+          html += \\x60<div class="tree-node file" style="margin-left:\${depth * 8}px">
             <div class="git-file">
               <span class="git-s \${stClass}">\${esc(stRaw || ' ')}</span>
-              <span class="file-name" style="\${stClass ? \`color: var(--\${stClass === 'M' ? 'warn' : stClass === 'A' ? 'ok' : 'err'})\` : ''}">\${esc(node.name)}</span>
+              <span class="file-name" style="\${stClass ? \\x60color: var(--\${stClass === 'M' ? 'warn' : stClass === 'A' ? 'ok' : 'err'})\\x60 : ''}">\${esc(node.name)}</span>
             </div>
-          </div>\`;
+          </div>\\x60;
         }
       }
       if (node.children) {
@@ -332,8 +332,8 @@ export const PANEL_JS = `
     } else if (existingTree) {
       h += '<div class="git-tree-container" style="margin-bottom:12px; border-top:1px solid var(--border); padding-top:4px;">' + existingTree + '</div>';
     }
-    if (payload.lastCommitMessage) h += \`<div style="font-size:10px;color:var(--dim);margin-bottom:6px">Last: \${esc(payload.lastCommitMessage)} · \${esc(payload.lastCommitTime)}</div>\`;
-    if (payload.guide) h += \`<div class="git-tip">\${md(payload.guide)}</div>\`;
+    if (payload.lastCommitMessage) h += \\x60<div style="font-size:10px;color:var(--dim);margin-bottom:6px">Last: \${esc(payload.lastCommitMessage)} · \${esc(payload.lastCommitTime)}</div>\\x60;
+    if (payload.guide) h += \\x60<div class="git-tip">\${md(payload.guide)}</div>\\x60;
     c.innerHTML = h;
   }
 
@@ -350,9 +350,9 @@ export const PANEL_JS = `
     const typeIcon = { npm: '📦', python: '🐍', script: '⚙️', binary: '🐳', go: '🐹' };
     let h = '';
     Object.keys(groups).sort((a, b) => a === 'Root' ? -1 : b === 'Root' ? 1 : a.localeCompare(b)).forEach(g => {
-      h += \`<div class="pkg-header">\${esc(g)}</div>\`;
+      h += \\x60<div class="pkg-header">\${esc(g)}</div>\\x60;
       groups[g].forEach(item => {
-        h += \`<div class="card"><div class="pkg-row"><span class="pkg-name" title="\${esc(item.command)}">\${esc(item.name)}</span><span class="pkg-type">\${typeIcon[item.type] || '▶'}</span><button class="run-btn" data-cmd="\${esc(item.command)}" data-path="\${esc(item.path)}">▶ Run</button></div></div>\`;
+        h += \\x60<div class="card"><div class="pkg-row"><span class="pkg-name" title="\${esc(item.command)}">\${esc(item.name)}</span><span class="pkg-type">\${typeIcon[item.type] || '▶'}</span><button class="run-btn" data-cmd="\${esc(item.command)}" data-path="\${esc(item.path)}">▶ Run</button></div></div>\\x60;
       });
     });
     c.innerHTML = h;
@@ -367,7 +367,7 @@ export const PANEL_JS = `
   function updateAiInfo(info) {
     const b = document.getElementById('ai-badge');
     if (!b || !info) return;
-    const txt = \`\${(info.provider || 'AI').toUpperCase()} · \${info.model || ''}\`;
+    const txt = \\x60\${(info.provider || 'AI').toUpperCase()} · \${info.model || ''}\\x60;
     b.textContent = txt.length > 22 ? txt.slice(0, 19) + '…' : txt;
     b.title = txt;
   }
@@ -376,11 +376,11 @@ export const PANEL_JS = `
     if (!ex) return;
     const el = document.getElementById("ai-expl");
     if (el) {
-      el.innerHTML = \`<div class="explain-card">
+      el.innerHTML = \\x60<div class="explain-card">
         <div class="ec-label">Analysis</div>
         <div>\${md(ex.summary || '')}</div>
-        \${ex.fix ? \`<div class="ec-fix"><strong>Fix:</strong> \${md(ex.fix)}</div>\` : ""}
-      </div>\`;
+        \${ex.fix ? \\x60<div class="ec-fix"><strong>Fix:</strong> \${md(ex.fix)}</div>\\x60 : ""}
+      </div>\\x60;
       el.style.display = "block";
       el.scrollIntoView({ behavior: "smooth" });
     }
@@ -410,10 +410,10 @@ export const PANEL_JS = `
     function buildNode(n, depth = 0) {
       const isDir = n.type === 'directory';
       const icon = isDir ? '📁' : '📄';
-      let h = \`<div class="tree-item \${isDir ? 'folder' : 'file'}" style="padding-left: \${depth * 12}px" data-path="\${esc(n.path)}">
+      let h = \\x60<div class="tree-item \${isDir ? 'folder' : 'file'}" style="padding-left: \${depth * 12}px" data-path="\${esc(n.path)}">
         <span class="item-icon">\${icon}</span>
         <span class="item-name">\${esc(n.name)}</span>
-      </div>\`;
+      </div>\\x60;
       if (isDir && n.children) {
         n.children.sort((a, b) => (a.type === b.type) ? a.name.localeCompare(b.name) : (a.type === 'directory' ? -1 : 1))
           .forEach(ch => h += buildNode(ch, depth + 1));
@@ -456,19 +456,19 @@ export const PANEL_JS = `
     if (!list) return;
     terminalsMap = {};
     data.forEach(t => terminalsMap[t.id] = t);
-    list.innerHTML = data.map(t => \`
+    list.innerHTML = data.map(t => \\x60
       <div class="terminal-card \${t.active ? 'active' : ''}">
         <div class="term-header">
           <div class="term-name">\${esc(t.name)}</div>
           <div class="term-status \${t.isExecuting ? 'executing' : ''}"></div>
         </div>
         <div class="term-purpose">\${esc(t.purpose)}</div>
-        \${t.port ? \`<a href="http://localhost:\${t.port}" style="font-size:10px; color:var(--accent); display:block; margin:4px 0;">🚀 Open http://localhost:\${t.port}</a>\` : ''}
+        \${t.port ? \\x60<a href="http://localhost:\${t.port}" style="font-size:10px; color:var(--accent); display:block; margin:4px 0;">🚀 Open http://localhost:\${t.port}</a>\\x60 : ''}
         <div class="term-actions" style="display:flex;gap:6px;margin-top:6px">
           <button class="btn-sm focus term-focus-btn" data-id="\${t.id}">👁 Focus</button>&nbsp;
           <button class="btn-sm kill term-kill-btn" data-id="\${t.id}">⏹ Kill</button>
         </div>
-      </div>\`).join('');
+      </div>\\x60).join('');
   }
 
   document.getElementById('terminal-selector')?.addEventListener('click', e => {
@@ -555,4 +555,4 @@ export const PANEL_JS = `
   // ── Handshake ──
   vsc.postMessage({ type: 'ready' });
 })();
-\`;
+`;

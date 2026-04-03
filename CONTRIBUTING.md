@@ -18,8 +18,8 @@ First off, thank you for considering contributing to Terminal Buddy! It's people
 3.  **Install dependencies**: `npm install`.
 4.  **Create a branch**: Use a descriptive name like `feat-new-mascot` or `fix-terminal-flicker`.
 5.  **Make your changes**.
-6.  **Run tests**: (Coming soon! We are implementing automated testing).
-7.  **Submit a Pull Request**: Detail your changes in the PR template.
+6.  **Run tests**: Always run `npm test` before submitting. PRs that break the build will not be merged.
+7.  **Submit a Pull Request**: Use our [PR Template](.github/PULL_REQUEST_TEMPLATE.md) for faster review.
 
 ## Code Style & Standards
 - **TypeScript**: We use TypeScript for everything. No plain JS please!
