@@ -2,7 +2,7 @@
   "name": "terminal-buddy",
   "displayName": "Terminal Buddy",
   "description": "Your friendly terminal companion — explains errors, suggests commands, tracks history, helps with git, and has a pet.",
-  "version": "0.0.4",
+  "version": "0.4.0",
   "publisher": "terminal-buddy",
   "enabledApiProposals": [
     "terminalDataWriteEvent"
