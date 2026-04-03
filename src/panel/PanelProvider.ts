@@ -56,25 +56,76 @@ export class PanelProvider implements vscode.WebviewViewProvider {
     }
   }
 
-  post(msg: PanelMessage): void { this.view?.webview.postMessage(msg); }
-  sendLog(logs: CommandEntry[]): void { this.post({ type: 'updateLog', payload: logs.slice(0, 100).map(l => ({ ...l, errorOutput: l.errorOutput?.slice(0, 500) })) }); }
-  sendPetState(s: PetState): void { this.post({ type: 'updatePetState', payload: s }); }
-  sendGitStatus(s: GitStatus | null): void { this.post({ type: 'updateGitStatus', payload: s }); }
+  post(msg: PanelMessage): void { 
+    this.view?.webview.postMessage(msg); 
+  }
 
-  sendPorts(ports: ActivePort[] | null): void { this.post({ type: 'updatePorts', payload: ports || [] }); }
-  sendAiInfo(provider: string, model: string): void { this.post({ type: 'updateAiInfo', payload: { provider, model } }); }
-  sendAiThinking(): void { this.post({ type: 'aiThinking' }); }
-  sendExplanation(ex: any): void { this.post({ type: 'aiExplanation', payload: ex }); }
-  sendSuggestions(s: Suggestion[]): void { this.post({ type: 'updateSuggestions', payload: s }); }
+  sendLog(logs: CommandEntry[]): void { 
+    this.post({ 
+      type: 'updateLog', 
+      payload: logs.slice(0, 100).map(l => ({ ...l, errorOutput: l.errorOutput?.slice(0, 500) })) 
+    }); 
+  }
 
-  sendWorkspaceMap(m: WorkspaceMap): void { this.post({ type: 'updateWorkspaceMap', payload: m }); }
-  sendTerminalData(d: string): void { this.post({ type: 'terminalData', payload: d }); }
-  sendSafetyAlert(alert: any, cmd: string): void { this.post({ type: 'safetyAlert', payload: { alert, cmd } }); }
-  sendWarning(w: string): void { this.post({ type: 'warning', payload: w }); }
-  sendStats(s: any): void { this.post({ type: 'updateStats', payload: s }); }
-  sendStreamChunk(c: string): void { this.post({ type: 'aiStreamChunk', payload: c }); }
-  sendStreamDone(): void { this.post({ type: 'aiStreamDone' }); }
-  playAlertSound(): void { this.post({ type: 'playSound', payload: 'alert' }); }
+  sendPetState(s: PetState): void { 
+    this.post({ type: 'updatePetState', payload: s }); 
+  }
+
+  sendGitStatus(s: GitStatus | null): void { 
+    this.post({ type: 'updateGitStatus', payload: s }); 
+  }
+
+  sendPorts(ports: ActivePort[] | null): void { 
+    this.post({ type: 'updatePorts', payload: ports || [] }); 
+  }
+
+  sendAiInfo(provider: string, model: string): void { 
+    this.post({ type: 'updateAiInfo', payload: { provider, model } }); 
+  }
+
+  sendAiThinking(): void { 
+    this.post({ type: 'aiThinking' }); 
+  }
+
+  sendExplanation(ex: any): void { 
+    this.post({ type: 'aiExplanation', payload: ex }); 
+  }
+
+  sendSuggestions(s: Suggestion[]): void { 
+    this.post({ type: 'updateSuggestions', payload: s }); 
+  }
+
+  sendWorkspaceMap(m: WorkspaceMap): void { 
+    this.post({ type: 'updateWorkspaceMap', payload: m }); 
+  }
+
+  sendTerminalData(d: string): void { 
+    this.post({ type: 'terminalData', payload: d }); 
+  }
+
+  sendSafetyAlert(alert: any, cmd: string): void { 
+    this.post({ type: 'safetyAlert', payload: { alert, cmd } }); 
+  }
+
+  sendWarning(w: string): void { 
+    this.post({ type: 'warning', payload: w }); 
+  }
+
+  sendStats(s: any): void { 
+    this.post({ type: 'updateStats', payload: s }); 
+  }
+
+  sendStreamChunk(c: string): void { 
+    this.post({ type: 'aiStreamChunk', payload: c }); 
+  }
+
+  sendStreamDone(): void { 
+    this.post({ type: 'aiStreamDone' }); 
+  }
+
+  playAlertSound(): void { 
+    this.post({ type: 'playSound', payload: 'alert' }); 
+  }
   
   private updateGit(root: string) {
     this.gitHelper.getStatus(root).then(async (git) => {
@@ -283,7 +334,7 @@ export class PanelProvider implements vscode.WebviewViewProvider {
     this.post({ type: 'updateTerminalSelector', payload: list });
   }
 
-  private sendActiveCommands(): void {
+  public sendActiveCommands(): void {
     const list = this.terminalWatcher.getActiveCommands();
     this.post({ type: 'updateActiveCommands', payload: list });
   }

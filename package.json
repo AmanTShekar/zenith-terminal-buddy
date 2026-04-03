@@ -9,7 +9,7 @@
     "url": "https://github.com/AmanTShekar/zenith-terminal-buddy.git"
   },
   "engines": {
-    "vscode": "^1.93.0"
+    "vscode": "^1.85.0"
   },
   "categories": ["Other"],
   "keywords": ["terminal", "error", "helper", "ai", "companion", "pet", "git"],
