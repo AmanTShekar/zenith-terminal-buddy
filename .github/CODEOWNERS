@@ -1,0 +1,7 @@
+# Code Owners for Terminal Buddy
+
+# Assign everything to the primary maintainer
+*       @AmanTShekar
+
+# Specific ownership can be added below as the team grows:
+# /src/panel/ @AnotherOwner

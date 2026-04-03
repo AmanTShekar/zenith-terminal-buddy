@@ -2,24 +2,21 @@
 
 ## Supported Versions
 
-Currently, only the latest version of Terminal Buddy is supported.
+Only the latest version of Terminal Buddy is supported for security updates.
 
 | Version | Supported          |
 | ------- | ------------------ |
-| v0.0.x  | :white_check_mark: |
+| v0.x    | ✅ Supported       |
+| < v0.0.1| ❌ Not Supported   |
 
 ## Reporting a Vulnerability
 
-We take the security of Terminal Buddy seriously. If you believe you have found a security vulnerability, please report it to us by following these steps:
+We take the security of Terminal Buddy seriously. If you find a vulnerability, please do NOT open a public issue. Instead, follow these steps:
 
-1. **Do not** open a public issue.
-2. Email the maintainer at [aman.shekar.dev@gmail.com](mailto:aman.shekar.dev@gmail.com) with the subject "Security Vulnerability Report".
-3. Provide a detailed description of the vulnerability, including steps to reproduce it.
+1.  **Email the maintainer**: Send a private report to the primary maintainer (AmanTShekar).
+2.  **Details**: Include a description of the issue, steps to reproduce, and potential impact.
+3.  **Response**: You will receive a response within 48 hours.
 
-### What to Expect
+## Terminal Safety Features
 
-- You will receive an acknowledgment of your report within 48 hours.
-- We will work to resolve the issue as quickly as possible.
-- Once the issue is resolved, we will notify you and credit you for the discovery (if desired).
-
-Thank you for helping keep Terminal Buddy secure!
+Terminal Buddy includes a core safety engine that audits commands in real-time. This is intended to prevent accidental errors, but always verify commands manually before execution.
