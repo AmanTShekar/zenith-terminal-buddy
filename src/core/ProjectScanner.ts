@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import {
-  ProjectInfo, ProjectType, WorkspaceMap,
+  ProjectInfo, ProjectType, WorkspaceMap, FileNode,
   SCANNER_MAX_DEPTH,
 } from '../types';
 
@@ -23,12 +23,37 @@ export class ProjectScanner {
     const rootPath = folders[0].uri.fsPath;
     const projects: ProjectInfo[] = [];
     const visited = new Set<string>();
+    
+    // 🌳 Build File Tree
+    const tree = await this.buildFileTree(folders[0].uri, 0);
 
     for (const folder of folders) {
       await this.walkDirectory(folder.uri, 0, projects, visited);
     }
 
-    this.map = { rootPath, projects, scannedAt: Date.now() };
+    this.map = { rootPath, projects, fileTree: tree, scannedAt: Date.now() };
+  }
+
+  private async buildFileTree(uri: vscode.Uri, depth: number): Promise<FileNode> {
+    const name = uri.fsPath.split(/[\\/]/).pop() || 'root';
+    const node: FileNode = { name, type: 'directory', path: uri.fsPath, children: [] };
+    
+    if (depth > 2) return node; // Keep UI tree shallow but fast
+
+    try {
+      const entries = await vscode.workspace.fs.readDirectory(uri);
+      for (const [eName, type] of entries) {
+        if (SKIP_DIRS.has(eName) || eName.startsWith('.')) continue;
+        const childUri = vscode.Uri.joinPath(uri, eName);
+        if (type === vscode.FileType.Directory) {
+          node.children!.push(await this.buildFileTree(childUri, depth + 1));
+        } else {
+          node.children!.push({ name: eName, type: 'file', path: childUri.fsPath });
+        }
+      }
+    } catch {}
+    
+    return node;
   }
 
   private async walkDirectory(

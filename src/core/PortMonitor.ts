@@ -3,6 +3,7 @@ import * as util from 'util';
 import * as vscode from 'vscode';
 
 const exec = util.promisify(child_process.exec);
+const EXEC_TIMEOUT_MS = 5000;
 
 export interface ActivePort {
   port: number;
@@ -13,7 +14,17 @@ export interface ActivePort {
 
 export class PortMonitor {
   private static readonly COMMON_PORTS = [
-    3000, 3001, 5000, 5001, 5173, 8000, 8080, 8888, 4200, 3333
+    3000, 3001, 5000, 5001, 5173, 8000, 8888, 4200, 3333
+  ];
+
+  private static readonly NOISE_PORTS = [
+    5432, 3306, 6379, 27017, // Databases
+    5037, // ADB
+    13030, 13031, 13032, // VS Code / Tool internal
+    135, 445, 5040, 5357, // Windows Management (Access Denied ports)
+    7680, // Windows Update Delivery Optimization
+    5353, 5355, // mDNS / LLMNR noise
+    49152, 49664, 49665, 49666, 49667, 49668, 49669, 49670 // Windows Dynamic Services
   ];
 
   public async getActivePorts(scanAll: boolean = false): Promise<ActivePort[]> {
@@ -30,24 +41,28 @@ export class PortMonitor {
   }
 
   private async getWindowsPorts(scanAll: boolean): Promise<ActivePort[]> {
-    const { stdout } = await exec('netstat -ano -p tcp');
+    const { stdout } = await exec('netstat -ano -p tcp', { timeout: EXEC_TIMEOUT_MS });
     const lines = stdout.split('\n');
     const ports: ActivePort[] = [];
     const seen = new Set<number>();
 
     for (const line of lines) {
+      // Local Address:Port, State: LISTENING, PID
       const match = line.trim().match(/^TCP\s+\S+:(\d+)\s+\S+\s+LISTENING\s+(\d+)$/i);
       if (match) {
         const port = parseInt(match[1]);
         const pid = parseInt(match[2]);
         
-        // Filter out system ports and common Windows service ports
+        // STRICT DEV FILTERING
         const isSystemPort = port < 1024;
-        const isWindowsServiceRange = port >= 49664; // Common range for dynamic Windows services
-        const isBlacklisted = [135, 445, 5040, 5357].includes(port);
+        const isDynamicRange = port >= 49152; // IANA Dynamic ports
+        const isBlacklisted = PortMonitor.NOISE_PORTS.includes(port) || (port >= 135 && port <= 139) || port === 445;
 
-        if (!seen.has(port) && !isSystemPort && !isWindowsServiceRange && !isBlacklisted) {
-          if (scanAll || PortMonitor.COMMON_PORTS.includes(port) || port >= 3000) {
+        if (!seen.has(port) && !isSystemPort && !isBlacklisted) {
+          const isCommon = PortMonitor.COMMON_PORTS.includes(port);
+          const isLikelyDev = (port >= 3000 && port < 10000) || (port >= 30000 && port < 40000);
+
+          if (scanAll || isCommon || (isLikelyDev && !isDynamicRange)) {
             ports.push({ port, pid, protocol: 'TCP' });
             seen.add(port);
           }
@@ -59,7 +74,7 @@ export class PortMonitor {
 
   private async getUnixPorts(scanAll: boolean): Promise<ActivePort[]> {
     // lsof -i -P -n | grep LISTEN
-    const { stdout } = await exec('lsof -i -P -n | grep LISTEN');
+    const { stdout } = await exec('lsof -i -P -n | grep LISTEN', { timeout: EXEC_TIMEOUT_MS });
     const lines = stdout.split('\n');
     const ports: ActivePort[] = [];
     const seen = new Set<number>();
@@ -71,14 +86,21 @@ export class PortMonitor {
 
       const name = parts[0];
       const pid = parseInt(parts[1]);
-      const lastPart = parts[parts.length - 2]; // TCP *:3000
+      const lastPart = parts[parts.length - 2]; 
       const portMatch = lastPart.match(/:(\d+)$/);
       
       if (portMatch) {
         const port = parseInt(portMatch[1]);
-        if (!seen.has(port) && (scanAll || PortMonitor.COMMON_PORTS.includes(port))) {
-          ports.push({ port, pid, name, protocol: 'TCP' });
-          seen.add(port);
+        const isSystemPort = port < 1024;
+        const isBlacklisted = PortMonitor.NOISE_PORTS.includes(port);
+        const isCommon = PortMonitor.COMMON_PORTS.includes(port);
+        const isLikelyDev = (port >= 3000 && port < 10000) || (port >= 30000 && port < 40000);
+
+        if (!seen.has(port) && !isSystemPort && !isBlacklisted) {
+          if (scanAll || isCommon || isLikelyDev) {
+            ports.push({ port, pid, name, protocol: 'TCP' });
+            seen.add(port);
+          }
         }
       }
     }
@@ -86,15 +108,26 @@ export class PortMonitor {
   }
 
   public async killPort(port: number, pid: number): Promise<boolean> {
+    // 🛡️ Security: Strictly validate PID & port to prevent shell injection
+    const safePid = Math.floor(Number(pid));
+    const safePort = Math.floor(Number(port));
+    if (!Number.isFinite(safePid) || safePid <= 0 || safePid > 4194304) {
+      vscode.window.showErrorMessage(`Terminal Buddy: Invalid PID '${pid}' — kill aborted.`);
+      return false;
+    }
+    if (!Number.isFinite(safePort) || safePort < 1024 || safePort > 65535) {
+      vscode.window.showErrorMessage(`Terminal Buddy: Invalid port '${port}' — kill aborted.`);
+      return false;
+    }
     try {
       if (process.platform === 'win32') {
-        await exec(`taskkill /F /PID ${pid}`);
+        await exec(`taskkill /F /PID ${safePid}`, { timeout: EXEC_TIMEOUT_MS });
       } else {
-        await exec(`kill -9 ${pid}`);
+        await exec(`kill -9 ${safePid}`, { timeout: EXEC_TIMEOUT_MS });
       }
       return true;
     } catch (err) {
-      vscode.window.showErrorMessage(`Failed to kill process on port ${port}: ${err}`);
+      vscode.window.showErrorMessage(`Failed to kill process on port ${safePort}: ${err}`);
       return false;
     }
   }

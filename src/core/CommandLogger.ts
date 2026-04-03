@@ -9,7 +9,7 @@ const STORAGE_KEY = 'terminalBuddy.commandHistory';
 export class CommandLogger {
   private entries: CommandEntry[] = [];
   private readonly context: vscode.ExtensionContext;
-  private writePromise: Promise<void> = Promise.resolve();
+  private saveTimeout: NodeJS.Timeout | null = null;
 
   constructor(context: vscode.ExtensionContext) {
     this.context = context;
@@ -46,7 +46,12 @@ export class CommandLogger {
 
   // ── Save to storage (serialized write queue) ───────────────────────────
   private save(): void {
-    this.writePromise = this.writePromise.then(async () => {
+    if (this.saveTimeout) {
+      clearTimeout(this.saveTimeout);
+    }
+    
+    this.saveTimeout = setTimeout(async () => {
+      this.saveTimeout = null;
       try {
         const data: StoredData = {
           version: STORAGE_VERSION,
@@ -56,12 +61,16 @@ export class CommandLogger {
       } catch (err) {
         console.error('[Terminal Buddy] Failed to save command history:', err);
       }
-    });
+    }, 1000);
   }
 
   // ── Public API ─────────────────────────────────────────────────────────
 
   async add(entry: CommandEntry): Promise<void> {
+    if (!entry.cmd || !entry.cmd.trim()) {
+      return;
+    }
+    
     const maxItems = vscode.workspace.getConfiguration('terminalBuddy')
       .get<number>('maxHistoryItems', 500);
 

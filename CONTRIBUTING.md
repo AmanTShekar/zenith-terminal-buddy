@@ -1,64 +1,35 @@
 # Contributing to Terminal Buddy
 
-First off, thank you for considering contributing to Terminal Buddy! It’s people like you who make the open-source community an amazing place to learn, inspire, and create.
-
-### ⚠️ Current Project Status
-Terminal Buddy is currently in **active development (v0)**. We are focusing on stabilizing core features, improving AI accuracy, and refining the pet mascot system. Anyone is welcome to add features, suggest improvements, or report bugs.
-
----
+First off, thank you for considering contributing to Terminal Buddy! It's people like you that make Terminal Buddy such a great tool.
 
 ## How Can I Contribute?
 
 ### Reporting Bugs
-- Use the [GitHub Issue Tracker](TODO_ADD_LINK) to report bugs.
-- Include as much detail as possible: steps to reproduce, VS Code version, OS, and any relevant logs from the Terminal Buddy panel.
+- **Check the Issues**: Before reporting, please search existing issues to see if the bug has already been reported.
+- **Use the Template**: When you're ready, use the [Bug Report Template](.github/ISSUE_TEMPLATE/bug_report.md) to provide as much detail as possible.
 
 ### Suggesting Enhancements
-- If you have an idea for a new feature, a better rule for the engine, or a new pet companion, open an enhancement request in the Issue Tracker.
+- **Start a Discussion**: If you have a big idea, feel free to open an issue or a discussion first to get feedback.
+- **Explain the "Why"**: Describe the problem you're trying to solve and how the enhancement helps.
 
-### Pull Requests
-1.  **Fork the repo** and create your branch from `main`.
-2.  **Install dependencies** (`npm install`).
-3.  If you've added code that should be tested, add tests.
-4.  If you've changed APIs, update the documentation.
-5.  Ensure the build passes (`npm run build`).
-6.  Open a Pull Request with a clear description of your changes.
+### Your First Code Contribution
+1.  **Fork the repository**.
+2.  **Clone your fork**: `git clone https://github.com/YOUR_USER/terminal-buddy.git`.
+3.  **Install dependencies**: `npm install`.
+4.  **Create a branch**: Use a descriptive name like `feat-new-mascot` or `fix-terminal-flicker`.
+5.  **Make your changes**.
+6.  **Run tests**: (Coming soon! We are implementing automated testing).
+7.  **Submit a Pull Request**: Detail your changes in the PR template.
 
----
+## Code Style & Standards
+- **TypeScript**: We use TypeScript for everything. No plain JS please!
+- **Modularity**: Keep the `PanelProvider.ts` clean by extracting logic into specific services (AI, core, utils).
+- **Aesthetics**: UI changes should follow the "Premium & Vibrant" aesthetic of the extension.
 
-## Development Setup
+## Data Privacy
+Never commit API keys, personal logs, or sensitive environment variables. Terminal Buddy uses VS Code's `SecretStorage` for a reason!
 
-Terminal Buddy is built with TypeScript and esbuild.
+## Community & Conduct
+By participating in this project, you agree to abide by our [Code of Conduct](CODE_OF_CONDUCT.md).
 
-```bash
-# Clone your fork
-git clone https://github.com/YOUR_USERNAME/terminal-buddy.git
-cd terminal-buddy
-
-# Install dependencies
-npm install
-
-# Build the extension
-npm run build
-
-# Start watch mode
-npm run watch
-```
-
-To test the extension:
-1.  Open the project in VS Code.
-2.  Press `F5` to open the **Extension Development Host**.
-3.  Open the Terminal Buddy sidebar to see your changes in action.
-
----
-
-## Code Style
-- Use TypeScript for all logic.
-- Follow the project's layout (src/core, src/ai, src/panel, etc.).
-- Keep components small and focused.
-- Ensure every user-facing string is clear, friendly, and jargon-free.
-
-## Disclaimers & Data
-By contributing to this project, you agree that your contributions will be licensed under the project's [MIT License](LICENSE). Please do not include any sensitive data in your PRs or issues.
-
-Happy coding! 🐱🤖🐶👻
+Happy hacking! 🚀

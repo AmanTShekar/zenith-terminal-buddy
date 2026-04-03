@@ -64,9 +64,17 @@ export interface ProjectInfo {
   }[];
 }
 
+export interface FileNode {
+  name: string;
+  type: 'file' | 'directory';
+  path: string;
+  children?: FileNode[];
+}
+
 export interface WorkspaceMap {
   rootPath: string;
   projects: ProjectInfo[];
+  fileTree?: FileNode;
   scannedAt: number;
 }
 
@@ -195,7 +203,7 @@ export interface StoredData {
 export const STORAGE_VERSION = 1;
 export const MAX_ERROR_OUTPUT_LENGTH = 500;
 export const MAX_BUFFER_SIZE = 50 * 1024; // 50KB per command output
-export const AI_RATE_LIMIT_MS = 3000;
+export const AI_RATE_LIMIT_MS = 0;
 export const AI_TIMEOUT_MS = 15000;
 export const AI_CACHE_MAX = 100;
 export const GIT_TIMEOUT_MS = 3000;

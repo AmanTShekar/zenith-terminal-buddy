@@ -11,6 +11,13 @@ export interface SafetyReport {
   requiresConfirmation?: boolean; // If true, Buddy should intercept
 }
 
+// Commands too trivial to warrant an AI safety check — saves API quota
+const TRIVIAL_COMMANDS = new Set([
+  'ls', 'la', 'll', 'dir', 'cls', 'clear', 'pwd', 'cd', 'echo', 'cat', 'type',
+  'git status', 'git log', 'git diff', 'git branch', 'git fetch',
+  'npm run', 'yarn', 'node --version', 'npm --version', 'python --version'
+]);
+
 const DANGEROUS_PATTERNS: Array<{ pattern: RegExp; level: 'high' | 'medium'; msg: string }> = [
   {
     pattern: /rm\s+-(?:rf|fr|r)\s+(?:\/|\*|~\/)/i,
@@ -59,6 +66,12 @@ export class SafetyEngine {
 
   public async audit(cmd: string, cwd: string, projectType: ProjectType): Promise<SafetyReport> {
     const trimmedCmd = cmd.trim();
+    const baseCmd = trimmedCmd.split(/\s+/).slice(0, 2).join(' ');
+
+    // 0. Fast-exit for trivial commands — never waste API quota on these
+    if (TRIVIAL_COMMANDS.has(trimmedCmd) || TRIVIAL_COMMANDS.has(baseCmd) || trimmedCmd.length < 4) {
+      return { isDangerous: false, riskLevel: 'none', explanation: 'Trivial command — no audit needed.' };
+    }
 
     // 1. Regex-based pattern matching (Fast Path)
     for (const rule of DANGEROUS_PATTERNS) {
@@ -73,19 +86,31 @@ export class SafetyEngine {
     }
 
     // 2. AI-based deep audit for complex commands
-    try {
-      // Logic for AI audit (redact before sending)
-      // Note: redact function not imported here, but AIClient.callRaw handles it or we should.
-      const prompt = securityAuditPrompt(trimmedCmd, cwd, projectType);
-      const res = await this.aiClient.callRaw(prompt);
-      if (res) {
-        const aiReport = JSON.parse(res) as SafetyReport;
-        if (aiReport.isDangerous) {
-          return aiReport;
+    // 2. Only run AI audit for commands that: contain pipes, backticks, redirects, or are >50 chars
+    const isComplexCmd = /[|`;&>\\]/.test(trimmedCmd) || trimmedCmd.length > 50;
+    if (isComplexCmd) {
+      try {
+        const prompt = securityAuditPrompt(trimmedCmd, cwd, projectType);
+        const res = await this.aiClient.callRaw(prompt);
+        if (res) {
+          // 🛡️ Security: Validate AI response shape before trusting it
+          const parsed = JSON.parse(res);
+          if (typeof parsed.isDangerous === 'boolean') {
+            const validLevels = new Set(['none', 'low', 'medium', 'high']);
+            const aiReport: SafetyReport = {
+              isDangerous: parsed.isDangerous,
+              riskLevel: validLevels.has(parsed.riskLevel) ? parsed.riskLevel : 'medium',
+              explanation: typeof parsed.explanation === 'string' && parsed.explanation.length < 500
+                ? parsed.explanation
+                : 'Potential risk detected by AI.',
+              requiresConfirmation: !!parsed.requiresConfirmation,
+            };
+            if (aiReport.isDangerous) { return aiReport; }
+          }
         }
+      } catch (e) {
+        console.warn('[Terminal Buddy] Safety AI check failed:', e);
       }
-    } catch (e) {
-      console.warn('[Terminal Buddy] Safety AI check failed:', e);
     }
 
     // 3. Fallback: Lower-level flags

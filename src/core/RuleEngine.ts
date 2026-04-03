@@ -19,7 +19,80 @@ function extractPort(output: string): string {
   return match?.[1] ?? '???';
 }
 
+// [IMPROVEMENT] 'Did You Mean?' — common command typo mapping
+const TYPO_MAP: Record<string, string> = {
+  'npx': 'npx', 'nmp': 'npm', 'gi': 'git', 'gti': 'git', 'pythom': 'python', 'pytohn': 'python',
+  'pyhton': 'python', 'nodde': 'node', 'ndoe': 'node', 'dokcer': 'docker', 'cd..': 'cd ..',
+  'sl': 'ls', 'dc': 'cd',
+};
+
 const rules: Rule[] = [
+  // ── [PROACTIVE] Top-level env & dep checks — fire on ALL errors ─────────
+  {
+    id: 'dep-check-proactive',
+    match: (cmd, _output, exitCode) => {
+      if (exitCode === 0) return false;
+      const tool = cmd.trim().split(/\s+/)[0].toLowerCase();
+      return ['npm', 'yarn', 'node', 'npx'].includes(tool);
+    },
+    result: (cmd, _output, cwd) => {
+      if (!cwd) return null as any;
+      const pkgPath = path.join(cwd, 'package.json');
+      const modulesPath = path.join(cwd, 'node_modules');
+      if (fs.existsSync(pkgPath) && !fs.existsSync(modulesPath)) {
+        return {
+          summary: `Dependencies not installed!`,
+          cause: `I see a \`package.json\` but \`node_modules\` is missing. Your project isn't ready to run.`,
+          fix: `Run \`npm install\` to set up your project.`,
+          suggestedCommands: ['npm install'],
+          fromCache: false, source: 'rule',
+        };
+      }
+      return null as any;
+    }
+  },
+  {
+    id: 'env-guard-proactive',
+    match: (cmd, _output, exitCode) => {
+      if (exitCode === 0) return false;
+      const tool = cmd.trim().split(/\s+/)[0].toLowerCase();
+      return ['npm', 'node', 'python', 'rails', 'yarn', 'pnpm'].includes(tool);
+    },
+    result: (_cmd, _output, cwd) => {
+      if (!cwd) return null as any;
+      const dotEnvPath = path.join(cwd, '.env');
+      const examplePath = path.join(cwd, '.env.example');
+      if (!fs.existsSync(dotEnvPath) && fs.existsSync(examplePath)) {
+        return {
+          summary: `Missing .env file!`,
+          cause: `I see a \`.env.example\` but you don't have a \`.env\` file. Your app likely needs it to start.`,
+          fix: `Copy the example: \`cp .env.example .env\`, then fill in your real values.`,
+          suggestedCommands: ['cp .env.example .env'],
+          fromCache: false, source: 'rule',
+        };
+      }
+      return null as any;
+    }
+  },
+  {
+    id: 'did-you-mean',
+    match: (_cmd, output) => /command not found|is not recognized/i.test(output),
+    result: (cmd) => {
+      const tool = cmd.trim().split(/\s+/)[0].toLowerCase();
+      const suggestion = TYPO_MAP[tool];
+      if (suggestion && suggestion !== tool) {
+        return {
+          summary: `Typo detected! Did you mean \`${suggestion}\`?`,
+          cause: `"${tool}" is not a valid command, but \`${suggestion}\` is very similar.`,
+          fix: `Try re-running with \`${cmd.replace(tool, suggestion)}\`.`,
+          suggestedCommands: [cmd.replace(tool, suggestion)],
+          fromCache: false, source: 'rule',
+        };
+      }
+      return null as any;
+    }
+  },
+
   // ── Specific errors first (higher priority) ───────────────────────────
 
   {
@@ -115,13 +188,67 @@ const rules: Rule[] = [
   {
     id: 'command-not-found',
     match: (_, output) => /command not found|is not recognized|not found.*command/i.test(output),
-    result: (cmd, _, cwd) => {
-      const tool = cmd.trim().split(/\s+/)[0];
-      const lowerTool = tool.toLowerCase();
+    result: (fullCommand, _, cwd) => {
+      const tool = fullCommand.trim().split(/\s+/)[0];
+      const args = fullCommand.split(/\s+/).slice(1);
+      const cmdTool = tool.toLowerCase();
+
+      // 1. Path Validation (Missing File/Folder)
+      for (const arg of args) {
+        if (arg.includes('/') || arg.includes('\\') || arg.includes('.')) {
+          // Looks like a path
+          const absolutePath = path.isAbsolute(arg) ? arg : path.join(cwd || '', arg);
+          if (arg.length > 2 && !fs.existsSync(absolutePath)) {
+             // Double check for common false positives
+             if (arg.startsWith('-') || (arg.startsWith('/') && process.platform !== 'win32')) continue;
+             
+             return {
+               summary: `Buddy spotted a missing path!`,
+               cause: `You're trying to use "${arg}", but I can't find it in "${path.basename(cwd || 'your project')}".`,
+               fix: `Check for typos or use \`ls\` to see if the file moved.`,
+               suggestedCommands: ['ls', 'cd ..'],
+               fromCache: false,
+               source: 'rule',
+             };
+          }
+        }
+      }
+
+      // 2. Environment Guard (.env check)
+      if (cwd && (cmdTool === 'npm' || cmdTool === 'node' || cmdTool === 'python' || cmdTool === 'rails')) {
+        const dotEnvPath = path.join(cwd, '.env');
+        const examplePath = path.join(cwd, '.env.example');
+        if (!fs.existsSync(dotEnvPath) && fs.existsSync(examplePath)) {
+          return {
+            summary: `Missing Environment variables!`,
+            cause: `I see a \`.env.example\` but you don't have a \`.env\` file yet. Your code probably needs it.`,
+            fix: `Run \`cp .env.example .env\` and fill in your secrets.`,
+            suggestedCommands: ['cp .env.example .env'],
+            fromCache: false,
+            source: 'rule',
+          };
+        }
+      }
+
+      // 3. Dependency Check (node_modules)
+      if (cwd && (cmdTool === 'npm' || cmdTool === 'yarn' || cmdTool === 'node')) {
+        const pkgPath = path.join(cwd, 'package.json');
+        const modulesPath = path.join(cwd, 'node_modules');
+        if (fs.existsSync(pkgPath) && !fs.existsSync(modulesPath)) {
+          return {
+            summary: `Dependencies not installed!`,
+            cause: `I see a \`package.json\` but your \`node_modules\` folder is missing.`,
+            fix: `Run \`npm install\` to get your project ready.`,
+            suggestedCommands: ['npm install'],
+            fromCache: false,
+            source: 'rule',
+          };
+        }
+      }
       
       const greetings = ['hi', 'hello', 'hey', 'yo', 'sup', 'test', 'foo', 'bar', 'ping'];
       
-      if (greetings.includes(lowerTool)) {
+      if (greetings.includes(cmdTool)) {
         return {
           summary: `Hello! 👋 The terminal doesn't understand "${tool}".`,
           cause: 'You typed a greeting or placeholder word directly into the system shell.',
@@ -148,14 +275,14 @@ const rules: Rule[] = [
       }
 
       // Check for common missing infrastructure
-      if (cwd && (lowerTool === 'npm' || lowerTool === 'npm.exe')) {
+      if (cwd && (cmdTool === 'npm' || cmdTool === 'npm.exe')) {
         const pkgPath = path.join(cwd, 'package.json');
         if (!fs.existsSync(pkgPath)) {
           return {
-            summary: `Wait, it looks like you aren't in an npm project.`,
-            cause: `You tried to run \`${cmd.trim()}\`, but there is no \`package.json\` in this folder.`,
+            summary: `Wait, it looks like you're running npm in the wrong place.`,
+            cause: `The folder "${path.basename(cwd)}" has no package.json file, so npm doesn't know what to do.`,
             fix: `Make sure you have changed your directory (\`cd\`) into your project folder. Use \`ls\` or \`dir\` to see where you are.`,
-            suggestedCommands: ['ls', 'pwd'],
+            suggestedCommands: ['ls', 'cd ..'],
             fromCache: false,
             source: 'rule',
           };
@@ -170,18 +297,18 @@ const rules: Rule[] = [
         'rustc': 'Rust Programming Language',
       };
 
-      if (compilers[lowerTool]) {
+      if (compilers[cmdTool]) {
           return {
-            summary: `${compilers[lowerTool]} is not installed.`,
+            summary: `${compilers[cmdTool]} is not installed.`,
             cause: `The command "${tool}" was not found. You need to install the compiler to run this code.`,
-            fix: `Download and install ${compilers[lowerTool]} for your system.`,
+            fix: `Download and install ${compilers[cmdTool]} for your system.`,
             suggestedCommands: [],
             fromCache: false,
             source: 'rule',
           };
       }
 
-      if (['vite', 'tsc', 'jest', 'nodemon', 'eslint'].includes(lowerTool)) {
+      if (['vite', 'tsc', 'jest', 'nodemon', 'eslint'].includes(cmdTool)) {
         return {
           summary: `The command "${tool}" is missing — have you installed dependencies?`,
           cause: `You're trying to use ${tool}, but it’s not installed or not in your PATH.`,

@@ -1,4 +1,4 @@
-ok do and fix# 🐱 Terminal Buddy: Intelligence & UX Documentation
+# 🐱 Terminal Buddy: Intelligence & UX Documentation
 
 Terminal Buddy is an advanced, context-aware AI terminal assistant for VS Code. It transforms the command-line experience from a raw stream of characters into an interactive, secure, and intelligent workspace companion.
 
@@ -66,6 +66,28 @@ To bridge the gap between AI code generation and CLI execution. Terminal Buddy d
 
 ---
 
+## 📅 Development History & Issue Tracker
+
+### March/April 2026 Focus: UI Polish, Performance, and Security
+
+**1. Webview Freezing & UI Rendering Bugs**
+- *The Issue*: Extension users encountered severe "An error occurred while loading view: terminalBuddy.panel" errors which caused the entire layout to fail or freeze interactions.
+- *The Fix*: Sourced the bug to missing webview initialization methods (`getCss` & `getBody`). Consolidated fragmented script blocks inside the `PanelProvider.ts` into a single JavaScript execution context. Also unified message listeners for uninterrupted extension-host to webview communication. 
+
+**2. UI Latency & AI Performance Constraints**
+- *The Issue*: The application occasionally felt "frozen" due to artificial rate limits placed on AI queries along with locking background tasks. 
+- *The Fix*: Removed arbitrary AI rate limits and parallelized endpoint probing alongside context gathering. Optimized local disk I/O allowing the AI mascot/companion to instantly act on commands without blockage causing visual stuttering.
+
+**3. Content Security Policy (CSP) Configuration**
+- *The Issue*: Webview scripts and event handlers were increasingly becoming vulnerable to parsing flaws/XSS or failing to build natively. Natural language AI outputs were frequently crashing the parser due to being forced into structured data formats.
+- *The Fix*: Replaced inline HTML event handlers with explicit JS event listeners fulfilling a strict local CSP. Separated code flow between UI structuring requests (buttons) and general free-form chat.
+
+**4. External Provider API Connectivity limits**
+- *The Issue*: Hard-coded AI targets and models threw "All Gemini endpoints failed" due to maximum capacity/quota constraints per account tier.
+- *The Fix*: Engineered dynamic model discovery explicitly mapped out to support scaling token structures like Gemini 2.5/3.1 dynamically honoring individual quota limits seamlessly. Refactored layout to allow fluid interchanging of models via UX components.
+
+---
+
 ## 📈 Roadmap & Future Upgrades
 - [ ] **Strict Security Mode**: Hard-blocking dangerous command sequences.
 - [ ] **Terminal Auto-Redaction**: Masking secrets directly in the VS Code terminal window.
@@ -74,4 +96,4 @@ To bridge the gap between AI code generation and CLI execution. Terminal Buddy d
 
 ---
 
-*Documentation version 1.6 | Updated: March 2026 (v5.3 Intelligence Overhaul)*
+*Documentation version 1.7 | Updated: April 2026 (v5.4 Stability Overhaul)*

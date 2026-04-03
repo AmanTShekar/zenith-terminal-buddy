@@ -9,7 +9,8 @@ const SECRET_PATTERNS: Array<{ name: string; pattern: RegExp }> = [
   
   // AWS Keys
   { name: 'AWS Access Key', pattern: /AKIA[0-9A-Z]{16}/g },
-  { name: 'AWS Secret Access Key', pattern: /(?:'|")?[a-zA-Z0-9\/+]{40}(?:'|")?/g }, // Use with caution, usually combined in a specific context
+  // Context-aware: only match when preceded by the key variable name
+  { name: 'AWS Secret Access Key', pattern: /(?:aws_secret_access_key|AWS_SECRET_ACCESS_KEY)[\s=:"']+([a-zA-Z0-9\/+]{40})/g },
   
   // GitHub / GitLab Tokens
   { name: 'GitHub Token', pattern: /gh[pousr]_[a-zA-Z0-9]{36,}/g },

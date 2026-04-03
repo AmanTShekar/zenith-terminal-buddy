@@ -3,7 +3,8 @@ import {
   AIProviderType, AI_PROVIDERS, ErrorExplanation, CommandEntry, ProjectInfo, WorkspaceMap,
   AI_RATE_LIMIT_MS, AI_TIMEOUT_MS, AI_CACHE_MAX,
 } from '../types';
-import { doubtClearingPrompt, errorExplanationPrompt } from './prompts';
+import { doubtClearingPrompt, errorExplanationPrompt, chatPrompt, resolvePathPrompt } from './prompts';
+import { redact as redactSensitiveInfo } from '../core/RedactionUtils';
 
 // ─── Shared Types ───────────────────────────────────────────────────────────
 
@@ -16,12 +17,25 @@ export type StreamCallback = (chunk: string) => void;
 
 type ChatMessage = { role: 'user' | 'assistant'; content: string };
 
-// ─── Provider implementations ───────────────────────────────────────────────
+// ─── Hot Cache ──────────────────────────────────────────────────────────────
+let WORKING_GEMINI_ENDPOINT: string | null = null;
+let CACHED_MODELS: Record<string, string[]> = {};
 
 async function* callGeminiStream(apiKey: string, history: ChatMessage[], model?: string): AsyncIterable<string> {
-  const activeModel = model || AI_PROVIDERS.gemini.model;
   const encodedKey = encodeURIComponent(apiKey.trim());
   
+  // If we have a working endpoint, use it immediately
+  if (WORKING_GEMINI_ENDPOINT) {
+    try {
+      const url = WORKING_GEMINI_ENDPOINT.replace('[[KEY]]', encodedKey);
+      yield* runGeminiStream(url, history);
+      return; 
+    } catch (e) {
+      WORKING_GEMINI_ENDPOINT = null; // Invalidate cache on failure
+    }
+  }
+
+  const activeModel = model || AI_PROVIDERS.gemini.model;
   const modelVariants = [activeModel, `${activeModel}-latest`, 'gemini-1.5-flash-8b', 'gemini-pro'];
   const versions = ['v1beta', 'v1'];
   
@@ -32,55 +46,78 @@ async function* callGeminiStream(apiKey: string, history: ChatMessage[], model?:
     }
   }
   
-  let lastError: any;
-  for (const url of endpoints) {
-    try {
-      const response = await fetch(url, {
-        method: 'POST',
+  // Parallel Probe: Try first 3 endpoints in parallel to find a winner fast
+  const probeTasks = endpoints.slice(0, 3).map(async (url) => {
+     const res = await fetch(url, { 
+        method: 'POST', 
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: history.map(h => ({
-            role: h.role === 'user' ? 'user' : 'model',
-            parts: [{ text: h.content }],
-          })),
-          generationConfig: { maxOutputTokens: 1000, temperature: 0.2 }
-        })
-      });
+        body: JSON.stringify({ contents: [{ role: 'user', parts: [{ text: 'ping' }] }] })
+     });
+     if (!res.ok) throw new Error('Fail');
+     return url;
+  });
 
-      if (!response.ok) {
-        if (response.status === 404) continue; // Try next endpoint
-        throw new Error(`Gemini Stream Error: ${response.status}`);
-      }
-      if (!response.body) return;
-
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = '';
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
-
-        for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            try {
-              const data = JSON.parse(line.substring(6));
-              const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-              if (text) yield text;
-            } catch (e) {}
-          }
-        }
-      }
-      return; // Success, stop trying endpoints
-    } catch (e) {
-      lastError = e;
+  try {
+    const winner = await Promise.any(probeTasks);
+    WORKING_GEMINI_ENDPOINT = winner.replace(encodedKey, '[[KEY]]');
+    yield* runGeminiStream(winner, history);
+    return;
+  } catch (e) {
+    // Fallback to sequential for the rest if parallel probing failed
+    for (const url of endpoints) {
+        try {
+            yield* runGeminiStream(url, history);
+            WORKING_GEMINI_ENDPOINT = url.replace(encodedKey, '[[KEY]]');
+            return;
+        } catch {}
     }
   }
-  throw lastError || new Error('All Gemini endpoints failed');
+  throw new Error('All Gemini endpoints failed');
+}
+
+/** Helper to run the actual stream once URL is decided */
+async function* runGeminiStream(url: string, history: ChatMessage[]): AsyncIterable<string> {
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      contents: history.map(h => ({
+        role: h.role === 'user' ? 'user' : 'model',
+        parts: [{ text: h.content }],
+      })),
+      generationConfig: { maxOutputTokens: 1000, temperature: 0.2 }
+    })
+  });
+
+  if (!response.ok) throw new Error(`Gemini Stream Error: ${response.status}`);
+  if (!response.body) return;
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+
+      for (const line of lines) {
+        if (line.startsWith('data: ')) {
+          try {
+            const data = JSON.parse(line.substring(6));
+            const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+            if (text) yield text;
+          } catch (e) {}
+        }
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
 }
 
 async function* callOpenAIStream(apiKey: string, history: ChatMessage[], endpoint: string, model: string): AsyncIterable<string> {
@@ -282,12 +319,31 @@ async function callClaude(apiKey: string, history: ChatMessage[], model?: string
 async function callGroq(apiKey: string, history: ChatMessage[], model?: string, forceJson = false): Promise<string> {
   const config = AI_PROVIDERS.groq;
   const activeModel = model || config.model;
+  
   const res = await fetch(config.endpoint, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
-    body: JSON.stringify({ model: activeModel, messages: history, max_tokens: 500, temperature: 0.3, ...(forceJson ? { response_format: { type: 'json_object' } } : {}) }),
+    body: JSON.stringify({ 
+      model: activeModel, 
+      messages: history, 
+      max_tokens: 500, 
+      temperature: 0.3, 
+      ...(forceJson ? { response_format: { type: 'json_object' } } : {}) 
+    }),
   });
+
   const data = await res.json() as any;
+
+  // Handle decommissioned models by retrying with the default
+  if (data?.error?.code === 'model_decommissioned' && activeModel !== config.model) {
+    console.warn(`[Terminal Buddy] Model ${activeModel} is decommissioned. Retrying with default: ${config.model}`);
+    return callGroq(apiKey, history, config.model, forceJson);
+  }
+
+  if (data?.error) {
+    throw new Error(data.error.message || 'Groq API Error');
+  }
+
   return data?.choices?.[0]?.message?.content ?? '';
 }
 
@@ -307,15 +363,36 @@ export class AIClient {
     this.context = context;
   }
 
+  public getActiveModelName(): string {
+    const config = vscode.workspace.getConfiguration('terminalBuddy');
+    const provider = config.get<AIProviderType>('aiProvider', 'gemini');
+    const selectedModel = config.get<string>('selectedModel');
+    
+    if (selectedModel && selectedModel.trim()) {
+       return selectedModel.split('/').pop() || selectedModel;
+    }
+
+    const labels: Record<string, string> = {
+      gemini: 'Flash',
+      openai: 'GPT-4o',
+      claude: 'Claude-3',
+      groq: 'Llama-3'
+    };
+    return labels[provider] || 'AI';
+  }
+
   // ── Fetch Available Models ───────────────────────────────────────────
   async fetchAvailableModels(provider: AIProviderType): Promise<string[]> {
+    if (CACHED_MODELS[provider]) return CACHED_MODELS[provider];
+
     if (provider !== 'gemini') {
       const defaults: Record<string, string[]> = {
         openai: ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo'],
         claude: ['claude-3-5-sonnet-20240620', 'claude-3-haiku-20240307'],
-        groq: ['llama-3.1-70b-versatile', 'llama-3.1-8b-instant']
+        groq: ['llama-3.3-70b-versatile', 'llama-3.1-8b-instant']
       };
-      return defaults[provider] || [];
+      CACHED_MODELS[provider] = defaults[provider] || [];
+      return CACHED_MODELS[provider];
     }
 
     const auth = await this.getApiKey('gemini');
@@ -331,10 +408,13 @@ export class AIClient {
         .map((m: any) => m.name.replace('models/', ''))
         .filter((id: string) => !id.includes('embedding') && !id.includes('vision') && !id.includes('aqa'));
       
-      return ids.sort((a: string, b: string) => {
+      const sorted = ids.sort((a: string, b: string) => {
         const score = (s: string) => (s.includes('flash') ? 2 : s.includes('lite') ? 1 : 0);
         return score(b) - score(a);
       });
+
+      CACHED_MODELS[provider] = sorted;
+      return sorted;
     } catch (e) {
       console.warn('[Terminal Buddy] Gemini Auto-discovery failed:', e);
       return ['gemini-1.5-flash', 'gemini-1.5-flash-latest', 'gemini-pro'];
@@ -405,37 +485,39 @@ export class AIClient {
   async explain(entry: CommandEntry, projectInfo?: ProjectInfo): Promise<ErrorExplanation | null> {
     if (!entry.errorOutput) { return null; }
 
-    const now = Date.now();
-    const config = vscode.workspace.getConfiguration('terminalBuddy');
-    const cooldown = config.get<number>('aiCooldownMs', 1000); // Default to 1s
-    
-    if (now - this.lastCallAt < cooldown) {
-      return null;
-    }
-
     const cacheKey = this.makeCacheKey(entry.cmd, entry.errorOutput);
     const cached = this.cache.get(cacheKey);
     if (cached) {
       return { ...cached, fromCache: true };
     }
 
+    const config = vscode.workspace.getConfiguration('terminalBuddy');
     const provider = config.get<AIProviderType>('aiProvider', 'gemini');
     const auth = await this.getApiKey(provider);
     
     if (!auth) { return null; }
 
     try {
-      this.lastCallAt = now;
       const selectedModel = config.get<string>('selectedModel');
       const models = await this.fetchAvailableModels(provider);
       const modelToUse = selectedModel || models[0];
+
+      // Redact sensitive info from error output before sending
+      const cleanError = redactSensitiveInfo(entry.errorOutput);
+      
+      // Get recent history for context
+      const historySummary = this.context.globalState.get<CommandEntry[]>('recentLogs', [])
+        .slice(-5)
+        .map(l => `[${l.status}] ${l.cmd} -> ${l.errorOutput?.slice(0, 50) || 'Success'}`)
+        .join('\n');
 
       const prompt = errorExplanationPrompt(
         entry.cmd,
         entry.cwd,
         projectInfo?.type ?? 'unknown',
         projectInfo?.topLevelFiles ?? [],
-        entry.errorOutput,
+        cleanError,
+        historySummary
       );
 
       const wsId = entry.project || 'global';
@@ -514,22 +596,13 @@ export class AIClient {
   }
 
   async *askDoubtStream(cmd: string, errorOutput: string, question: string): AsyncIterable<string> {
-    const now = Date.now();
     const config = vscode.workspace.getConfiguration('terminalBuddy');
-    const cooldown = config.get<number>('aiCooldownMs', 4000);
-
-    if (now - this.lastCallAt < cooldown) {
-       yield 'Wait a moment before asking another question (Rate Limited)...';
-       return;
-    }
 
     const auth = await this.getApiKey();
     if (!auth) {
       yield 'AI is not configured. Please run "Terminal Buddy: Set AI API Key".';
       return;
     }
-
-    this.lastCallAt = now;
 
     try {
       const prompt = doubtClearingPrompt(cmd, errorOutput, question);
@@ -558,6 +631,39 @@ export class AIClient {
     } catch (err: any) {
       console.error('[Terminal Buddy] Chat stream failed:', err);
       yield `ERROR: I couldn't reach the AI. Details: ${err.message || 'Network issue'}.`;
+    }
+  }
+
+  async *chatStream(
+    question: string, 
+    projectType: string, 
+    cwd: string, 
+    files: string[],
+    activeTerminals?: any[]
+  ): AsyncIterable<string> {
+    const auth = await this.getApiKey();
+    if (!auth) return;
+
+    try {
+      const prompt = chatPrompt(question, projectType, cwd, files, activeTerminals);
+      const wsId = vscode.workspace.workspaceFolders?.[0]?.name || 'global';
+      const history = this.sessionHistory.get(wsId) || [];
+      
+      history.push({ role: 'user', content: prompt });
+      this.sessionHistory.set(wsId, history);
+
+      const caller = STREAM_CALLERS[auth.provider];
+      const selectedModel = vscode.workspace.getConfiguration('terminalBuddy').get<string>('selectedModel');
+      const modelToUse = (selectedModel && selectedModel.trim()) || (await this.fetchAvailableModels(auth.provider))[0];
+
+      let fullAnswer = '';
+      for await (const chunk of caller(auth.key, history, modelToUse)) {
+        fullAnswer += chunk;
+        yield chunk;
+      }
+      this.sessionHistory.get(wsId)!.push({ role: 'assistant', content: fullAnswer });
+    } catch (err: any) {
+      yield `Buddy had a glitch: ${err.message}`;
     }
   }
 
@@ -621,8 +727,20 @@ Provide a concise, helpful answer (max 4 sentences). If you suggest a command, w
   }
 
   private parseExplanation(raw: string): ErrorExplanation | null {
+    const rawTrimmed = raw.trim();
+    if (!rawTrimmed) {
+      return {
+        summary: "I received an empty response from the AI. This usually happens if the AI's safety filters triggered or a quota was exceeded.",
+        cause: "Empty Response",
+        fix: "Try re-phasing or check your API key's available quota.",
+        suggestedCommands: [],
+        fromCache: false,
+        source: 'ai',
+      };
+    }
+
     try {
-      const cleaned = raw.replace(/^```json/m, '').replace(/```$/m, '').trim();
+      const cleaned = rawTrimmed.replace(/^```json/m, '').replace(/```$/m, '').trim();
       let parsed;
       try {
         parsed = JSON.parse(cleaned);
@@ -633,7 +751,7 @@ Provide a concise, helpful answer (max 4 sentences). If you suggest a command, w
       }
 
       return {
-        summary: parsed.summary ?? raw.slice(0, 100),
+        summary: parsed.summary ?? (rawTrimmed.length > 5 ? rawTrimmed : "Buddy is puzzled by this one!"),
         cause: parsed.cause ?? '',
         fix: parsed.fix ?? '',
         suggestedCommands: Array.isArray(parsed.suggestedCommands)
@@ -643,11 +761,13 @@ Provide a concise, helpful answer (max 4 sentences). If you suggest a command, w
         source: 'ai',
       };
     } catch (err: any) {
-      console.warn('[Terminal Buddy] parseExplanation failed:', err.message);
+      console.warn('[Terminal Buddy] parseExplanation failed, falling back to raw text:', err.message);
+      
+      // Fallback: If we can't parse JSON, show the raw text as the summary if it looks meaningful
       return {
-        summary: raw.trim() || "Buddy is puzzled by this one. Try asking specifically in chat!",
-        cause: '',
-        fix: '',
+        summary: rawTrimmed.length > 10 ? rawTrimmed : "Buddy is puzzled by this one. Try asking specifically in chat!",
+        cause: 'Decoding issue',
+        fix: 'The AI didn\'t respond in the usual format, but check the summary above for clues.',
         suggestedCommands: [],
         fromCache: false,
         source: 'ai',
@@ -679,5 +799,62 @@ Provide a concise, helpful answer (max 4 sentences). If you suggest a command, w
   private makeCacheKey(cmd: string, errorOutput: string): string {
     const firstLine = errorOutput.split('\n')[0] ?? '';
     return `${cmd}::${firstLine}`.slice(0, 200);
+  }
+
+  public async describeTerminal(name: string, recentOutput: string): Promise<string> {
+    const auth = await this.getApiKey();
+    if (!auth) return 'Untitled Terminal';
+
+    const system = `You are a DevOps assistant. Given a terminal name and its recent output, provide a concise 3-4 word description of what this terminal is doing right now.
+    Example: "Running Vite Dev Server", "Executing Unit Tests", "Interactive Git Bash".
+    Reply ONLY with the description.`;
+
+    try {
+      const res = await CALLERS[auth.provider](auth.key, [
+        { role: 'user', content: `${system}\n\nTerminal: ${name}\nOutput: ${recentOutput.slice(-1000)}` }
+      ], undefined, false);
+      return res.trim().replace(/^"|"$/g, '');
+    } catch (e) {
+      return name || 'Active Terminal';
+    }
+  }
+  async analyzeTerminalHealth(logs: CommandEntry[]): Promise<string | null> {
+      const auth = await this.getApiKey();
+      if (!auth || logs.length === 0) return null;
+
+      const summary = logs.slice(0, 10).map(l => {
+          return `[${l.status.toUpperCase()}] ${l.cmd} (Exit: ${l.exitCode ?? 0})`;
+      }).join('\n');
+
+      const prompt = `Review the following terminal history and provide a "Deep Audit" summary of the user's progress. 
+      Identify recurring issues, safety risks, or optimizations. 
+      Be brief but impactful.
+      
+      History:
+      ${summary}`;
+
+      try {
+          const config = vscode.workspace.getConfiguration('terminalBuddy');
+          const model = config.get<string>('selectedModel') || (await this.fetchAvailableModels(auth.provider))[0];
+          return await CALLERS[auth.provider](auth.key, [{ role: 'user', content: prompt }], model, false);
+      } catch (e) {
+          return "Buddy is having trouble analyzing the overall logs right now.";
+      }
+  }
+
+  async resolvePathQuery(query: string, map: WorkspaceMap, cwd: string): Promise<string | null> {
+    const auth = await this.getApiKey();
+    if (!auth) return null;
+
+    try {
+      const prompt = resolvePathPrompt(query, map, cwd);
+      const config = vscode.workspace.getConfiguration('terminalBuddy');
+      const model = config.get<string>('selectedModel') || (await this.fetchAvailableModels(auth.provider))[0];
+      const res = await CALLERS[auth.provider](auth.key, [{ role: 'user', content: prompt }], model, false);
+      const path = res.trim().replace(/^`+|`+$/g, '');
+      return path === 'NONE' ? null : path;
+    } catch (e) {
+      return null;
+    }
   }
 }

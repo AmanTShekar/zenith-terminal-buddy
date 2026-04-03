@@ -11,7 +11,10 @@
   "keywords": ["terminal", "error", "helper", "ai", "companion", "pet", "git"],
   "activationEvents": [],
   "enabledApiProposals": [
-    "terminalDataWriteEvent"
+    "terminalDataWriteEvent",
+    "terminalCompletionProvider",
+    "terminalQuickFixProvider",
+    "terminalSelection"
   ],
   "main": "./dist/extension.js",
   "contributes": {
@@ -150,16 +153,29 @@
     }
   },
   "scripts": {
+    "vscode:prepublish": "npm run build",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
     "build": "node esbuild.config.js",
-    "watch": "node esbuild.config.js --watch",
     "package": "vsce package",
-    "compile": "tsc -noEmit"
+    "publish": "vsce publish",
+    "lint": "eslint src --ext ts",
+    "test": "node ./out/test/runTest.js",
+    "verify": "npm run lint && npm run compile && npm run build"
   },
   "devDependencies": {
     "@types/vscode": "^1.93.0",
     "@types/node": "^20.0.0",
+    "@types/mocha": "^10.0.7",
+    "@types/glob": "^8.1.0",
+    "@typescript-eslint/eslint-plugin": "^7.14.1",
+    "@typescript-eslint/parser": "^7.14.1",
     "typescript": "^5.5.0",
     "esbuild": "^0.21.0",
-    "@vscode/vsce": "^3.0.0"
+    "@vscode/vsce": "^3.0.0",
+    "@vscode/test-electron": "^2.4.0",
+    "eslint": "^8.57.0",
+    "glob": "^10.4.2",
+    "mocha": "^10.4.0"
   }
 }

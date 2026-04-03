@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
+import * as os from 'os';
 import { CommandEntry } from '../types';
 
 export class LogExporter {
@@ -22,27 +23,38 @@ export class LogExporter {
     const fileUri = await vscode.window.showSaveDialog(options);
     if (!fileUri) return;
 
+    const homeDir = os.homedir().replace(/\\/g, '/');
+    const anonymizePath = (p: string) => (p || '').replace(/\\/g, '/').replace(homeDir, '~');
+    const anonymizeEntry = (e: CommandEntry) => ({
+      ...e,
+      cwd: anonymizePath(e.cwd),
+      cmd: anonymizePath(e.cmd),
+      errorOutput: e.errorOutput ? anonymizePath(e.errorOutput) : undefined,
+    });
+
     try {
       let content = '';
       const ext = path.extname(fileUri.fsPath).toLowerCase();
 
       if (ext === '.json') {
-        content = JSON.stringify(entries, null, 2);
+        content = JSON.stringify(entries.map(anonymizeEntry), null, 2);
       } else if (ext === '.md') {
         content = '# Terminal Buddy History\n\n';
         content += entries.map(e => {
-          const date = new Date(e.timestamp).toLocaleString();
-          let md = `## [${e.status.toUpperCase()}] ${e.cmd}\n`;
+          const a = anonymizeEntry(e);
+          const date = new Date(a.timestamp).toLocaleString();
+          let md = `## [${a.status.toUpperCase()}] \`${a.cmd}\`\n`;
           md += `- **At**: ${date}\n`;
-          md += `- **CWD**: ${e.cwd}\n`;
-          if (e.errorOutput) {
-            md += `\n### Error Output\n\`\`\`text\n${e.errorOutput}\n\`\`\`\n`;
+          md += `- **CWD**: \`${a.cwd}\`\n`;
+          if (a.errorOutput) {
+            md += `\n### Error Output\n\`\`\`text\n${a.errorOutput}\n\`\`\`\n`;
           }
           return md;
         }).join('\n---\n\n');
       } else {
         content = entries.map(e => {
-          return `[${new Date(e.timestamp).toLocaleString()}] [${e.status}] ${e.cmd}\n${e.errorOutput ? `ERROR: ${e.errorOutput}\n` : ''}`;
+          const a = anonymizeEntry(e);
+          return `[${new Date(a.timestamp).toLocaleString()}] [${a.status}] ${a.cmd}\n${a.errorOutput ? `ERROR: ${a.errorOutput}\n` : ''}`;
         }).join('\n');
       }
 

@@ -18,11 +18,11 @@ function generateId(): string {
 
 function tagCommand(cmd: string): CommandTag {
   const c = cmd.trim().toLowerCase();
-  if (/^(jest|vitest|pytest|mocha|npm\s+test|yarn\s+test|npx\s+jest)/.test(c)) { return 'test'; }
-  if (/^(npm\s+run\s+build|yarn\s+build|tsc|vite\s+build|next\s+build|webpack|rollup)/.test(c)) { return 'build'; }
+  if (/^(jest|vitest|pytest|mocha|npm\s+test|yarn\s+test|npx\s+jest|rspec|bundle\s+exec\s+rspec)/.test(c)) { return 'test'; }
+  if (/^(npm\s+run\s+build|yarn\s+build|tsc|vite\s+build|next\s+build|webpack|rollup|dotnet\s+build|mvn\s+package|gradle\s+build)/.test(c)) { return 'build'; }
   if (/^git\s/.test(c)) { return 'git'; }
-  if (/^(npm\s+(install|i|ci)|yarn\s+(add|install)|pnpm\s+(add|install|i)|pip\s+install|cargo\s+add)/.test(c)) { return 'install'; }
-  if (/^(npm\s+(run\s+dev|start|run\s+start)|yarn\s+(dev|start)|node\s|python\s|cargo\s+run|go\s+run)/.test(c)) { return 'run'; }
+  if (/^(npm\s+(install|i|ci)|yarn\s+(add|install)|pnpm\s+(add|install|i)|pip\s+install|cargo\s+add|bundle\s+install|composer\s+install)/.test(c)) { return 'install'; }
+  if (/^(npm\s+(run\s+dev|start|run\s+start)|yarn\s+(dev|start)|node\s|python\s|cargo\s+run|go\s+run|rails\s+s|php\s+artisan\s+serve)/.test(c)) { return 'run'; }
   return 'other';
 }
 
@@ -47,8 +47,16 @@ export class TerminalWatcher implements vscode.Disposable {
   private readonly _onData = new vscode.EventEmitter<{ terminal: vscode.Terminal; data: string }>();
   public readonly onData = this._onData.event;
 
+  private readonly _onSensitivityDetected = new vscode.EventEmitter<vscode.Terminal>();
+  public readonly onSensitivityDetected = this._onSensitivityDetected.event;
+
   private readonly disposables: vscode.Disposable[] = [];
-  private readonly buffers = new Map<vscode.Terminal, ExecutionBuffer>();
+  private buffers: Map<vscode.Terminal, ExecutionBuffer> = new Map();
+  private purposeCache: Map<string, string> = new Map();
+  private aiClient?: any;
+  private history: Map<string, { cmd: string }[]> = new Map();
+  private historyLimit: number;
+  private portMonitor?: any;
   private readonly terminalIds = new Map<vscode.Terminal, string>();
   private shellIntegrationAvailable = false;
   private debounceTimers = new Map<vscode.Terminal, NodeJS.Timeout>();
@@ -62,7 +70,14 @@ export class TerminalWatcher implements vscode.Disposable {
     return this.terminalIds.get(terminal)!;
   }
 
-  constructor() {
+  constructor(historyLimit: number = 100, aiClient?: any, portMonitor?: any) {
+    this.historyLimit = historyLimit;
+    this.aiClient = aiClient;
+    this.portMonitor = portMonitor;
+    this.setupListeners();
+  }
+
+  private setupListeners() {
     // ── Shell Integration: command start ────────────────────────────────
     this.disposables.push(
       vscode.window.onDidStartTerminalShellExecution(async (e) => {
@@ -82,6 +97,12 @@ export class TerminalWatcher implements vscode.Disposable {
           output: '',
           startTime: Date.now(),
         });
+
+        // Track history
+        const h = this.history.get(termId) || [];
+        h.push({ cmd });
+        if (h.length > this.historyLimit) h.shift();
+        this.history.set(termId, h);
 
         this._onCommandStart.fire({ id, cmd, cwd, terminalId: termId, terminalName: terminal.name });
 
@@ -146,6 +167,8 @@ export class TerminalWatcher implements vscode.Disposable {
           this.buffers.delete(terminal);
         }
         this.debounceTimers.delete(terminal);
+        this.terminalIds.delete(terminal);
+        this.purposeCache.delete(this.getTerminalId(terminal));
       }),
     );
 
@@ -237,6 +260,56 @@ export class TerminalWatcher implements vscode.Disposable {
     }));
   }
 
+  public getAllTerminals(): any[] {
+    return vscode.window.terminals.map(t => {
+      const buffer = this.buffers.get(t);
+      const isFocused = vscode.window.activeTerminal === t;
+      const termId = this.getTerminalId(t);
+      return {
+        id: termId,
+        name: t.name,
+        active: isFocused,
+        isExecuting: !!buffer,
+        purpose: this.getCachedPurpose(termId, t, buffer),
+        port: this.portMonitor?.getPorts().find((p: any) => p.processId === (t as any).processId)?.port,
+      };
+    });
+  }
+
+  private getCachedPurpose(id: string, terminal: vscode.Terminal, buffer?: ExecutionBuffer): string {
+    const heuristic = this.guessTerminalPurpose(terminal, buffer);
+    if (heuristic !== 'Idle Terminal') return heuristic;
+    
+    const cached = this.purposeCache.get(id);
+    if (cached) return cached;
+
+    // Trigger async AI description if idle and no cache
+    if (this.aiClient) {
+      // Get recent history for this terminal to give AI context
+      const history = (this.history.get(id) || []).slice(-3).map(h => h.cmd).join('\n');
+      this.aiClient.describeTerminal(terminal.name, history).then((desc: string) => {
+        this.purposeCache.set(id, desc);
+      });
+    }
+
+    return 'Idle Terminal';
+  }
+
+  private guessTerminalPurpose(terminal: vscode.Terminal, buffer?: ExecutionBuffer): string {
+    if (buffer) {
+      const cmd = buffer.cmd.toLowerCase();
+      if (cmd.includes('dev') || cmd.includes('start')) return 'Development Server';
+      if (cmd.includes('test')) return 'Running Tests';
+      if (cmd.includes('build')) return 'Building Project';
+      if (cmd.includes('git')) return 'Git Operations';
+    }
+    const name = terminal.name.toLowerCase();
+    if (name.includes('node') || name.includes('npm')) return 'JavaScript Runtime';
+    if (name.includes('python')) return 'Python Environment';
+    if (name.includes('zsh') || name.includes('bash') || name.includes('fish')) return 'Interactive Shell';
+    return 'Idle Terminal';
+  }
+
   public stopCommand(id: string): void {
     for (const [terminal, buffer] of this.buffers.entries()) {
       if (buffer.id === id) {
@@ -262,13 +335,21 @@ export class TerminalWatcher implements vscode.Disposable {
         if (!this.buffers.has(terminal)) { break; } // terminal or command gone
 
         const text = typeof chunk === 'string' ? chunk : String(chunk);
+        
+        // 🛡️ Sensitivity Detection
+        if (/[Pp]assword:|PASS[:=]|SECRET[:=]/i.test(text)) {
+            this._onSensitivityDetected.fire(terminal);
+            // We still log the command as a placeholder but redact the subsequent output
+            continue; 
+        }
+
         const cleaned = redact(stripAnsi(text));
         
         this._onData.fire({ terminal, data: cleaned });
 
-        // Cap buffer size to prevent memory issues
+        // Cap buffer size using a sliding window for long-running processes
         if (buffer.output.length + cleaned.length > MAX_BUFFER_SIZE) {
-          buffer.output = buffer.output.slice(-MAX_BUFFER_SIZE / 2) + cleaned.slice(0, MAX_BUFFER_SIZE / 2);
+          buffer.output = (buffer.output + cleaned).slice(-MAX_BUFFER_SIZE);
         } else {
           buffer.output += cleaned;
         }
@@ -301,12 +382,16 @@ export class TerminalWatcher implements vscode.Disposable {
 
   dispose(): void {
     this._onCommandFinished.dispose();
+    this._onCommandStart.dispose();
     this._onWrongDirectory.dispose();
+    this._onData.dispose();
+    this._onSensitivityDetected.dispose();
     this.buffers.clear();
     for (const timer of this.debounceTimers.values()) {
       clearTimeout(timer);
     }
     this.debounceTimers.clear();
+    this.terminalIds.clear();
     for (const d of this.disposables) {
       d.dispose();
     }

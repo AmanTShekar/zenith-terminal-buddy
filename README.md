@@ -1,15 +1,13 @@
 <div align="center">
- 
+  <img src="assets/logo.jpg" alt="Terminal Buddy Banner" width="100%">
   
-  <h1>Terminal Buddy</h1>
-
-  <img src="https://github.com/AmanTShekar/zenith-terminal-buddy/blob/main/logo%20terminal%20buddy.jpg" alt="Terminal Buddy Banner" width="100%" height="40%">
-  
-  <p><b>A Knowledgeable Companion for Your Terminal</b></p>
+  <h1>🐱 Terminal Buddy</h1>
+  <p><b>A Knowledgeable Companion for Your VS Code Terminal</b></p>
 
   <p>
-    <img src="https://img.shields.io/badge/status-heavy%20development-orange?style=for-the-badge" alt="Status: Heavy Development">
+    <img src="https://img.shields.io/badge/status-production--ready-success?style=for-the-badge" alt="Status: Production Ready">
     <img src="https://img.shields.io/badge/license-MIT-blue?style=for-the-badge" alt="License: MIT">
+    <img src="https://img.shields.io/github/actions/workflow/status/AmanTShekar/zenith-terminal-buddy/ci.yml?style=for-the-badge" alt="CI Status">
     <img src="https://img.shields.io/badge/PRs-welcome-brightgreen?style=for-the-badge" alt="PRs Welcome">
   </p>
 
@@ -22,100 +20,84 @@
 
 ## 🚀 Why Terminal Buddy?
 
-Terminal output is often cluttered with ANSI codes, jargon-heavy error messages, and context that’s hard to parse. For developers, this leads to **constant context switching**: you copy an error, paste it into a browser, search, and then come back to the IDE.
+Terminal output is often cluttered with jargon-heavy error messages and context that’s hard to parse.
+**Terminal Buddy acts as a bridge between raw CLI and your development workflow.**
 
-**Terminal Buddy was made to reduce that friction.** It acts as a bridge between the raw terminal and your development workflow, providing:
-- **Instant Clarity**: Explains <i>why</i> a command failed without leaving VS Code.
-- **Proactive Guidance**: Suggests the next logical step (e.g., missing dependencies, git branch fixes).
-- **Reduced Anxiety**: Checks for dangerous operations (like `rm -rf`) and warns before they happen.
-- **Engagement**: A fun, interactive pet mascot that grows as your terminal skills improve.
+- **Instant Clarity**: Explains failures without leaving VS Code.
+- **Proactive Guidance**: Suggests next steps (missing dependencies, git fixes).
+- **Reduced Anxiety**: Checks for dangerous operations (like `rm -rf`) before they run.
+- **Engagement**: A companion pet mascot that grows with your skills.
+
+---
+
+## 🏗️ Project Architecture
+
+Terminal Buddy uses a modular architecture for reliability and performance. For deeper technical details, see the [Architecture Documentation](docs/architecture.md).
+
+```mermaid
+graph TD
+    A[VS Code Terminal] -->|Data Stream| B[TerminalWatcher]
+    B --> C{AI Engine}
+    C -->|Gemini/Groq/GPT| D[Explanation Mode]
+    C -->|Command History| E[Semantic Search]
+    B --> F[Safety Auditor]
+    F -->|Dangerous Cmd| G[Interception UI]
+    H[PanelProvider] -->|Webview UI| I[Pet Manager]
+    H -->|Log Stream| J[Terminal Log UI]
+```
 
 ---
 
 ## ✨ Key Features
 
-- 📋 **Live Command Log**: Track every command you run with status indicators, tags (git, test, build), and timestamps.
-- 💡 **AI-Powered Explanations**: Integrates with **Gemini**, **Groq**, **OpenAI**, and **Claude** to explain complex failures.
-- 📦 **Dependency Guardian**: Automatically detects missing packages (`npm`, `pip`, etc.) and offers one-click install suggestions.
-- 🔀 **Git Intelligence**: Real-time branch monitoring, push warnings for `main`, and merge conflict detection.
-- 🐱 **Interactive Mascot**: Choose a Cat, Dog, Robot, or Ghost companion. They celebrate your wins and worry with you when builds fail.
-- 🔎 **Semantic History Search**: Find that one command you ran three days ago using natural language.
+- 🛡️ **Security Audit**: Evaluates command intent to warn against dangerous sequences.
+- 🪄 **Magic CLI Prompt**: Natural language to CLI command generation.
+- 🌳 **Human-Readable Git tree**: Sidebar visualization of repository modifications.
+- 🐱 **Interactive Buddy**: Choose from a Cat, Dog, Robot, or Ghost.
+- 🔎 **Semantic Search**: Find command history using natural language.
+- 📋 **Live Command Log**: Interactive monitoring of terminal activity.
+
+Detailed feature breakdown available in [Features Documentation](docs/features.md).
 
 ---
 
-## 🛠️ Getting Started
+## 🛠️ Instructions (Quick Start)
 
-### Local Setup & Requirements
+### 1. Installation
+1. Search for **Terminal Buddy** in the VS Code Marketplace and click Install.
+2. Alternatively, clone this repo and run `npm install` (see Development below).
 
-To build and run Terminal Buddy from source, ensure you have the following installed:
-- **Node.js**: v18 or later
-- **npm**: v8 or later
-- **VS Code**: v1.93.0 or later
+### 2. Configuration
+1. Open Terminal Buddy from the Activity Bar icon.
+2. Click the ⚙️ (Settings) icon.
+3. Enter your **AI Provider API Key** (Gemini, OpenAI, or Groq).
+4. Select your preferred **Mascot Companion**.
 
-1. **Clone the repository**:
-   ```bash
-   git clone https://github.com/AmanTShekar/zenith-terminal-buddy.git
-   cd zenith-terminal-buddy
-   ```
-2. **Install dependencies**:
-   ```bash
-   npm install
-   ```
-3. **Compile and Run**:
-   - Open the directory in VS Code.
-   - Press `F5` to open a new VS Code Extension Development Host window.
-   - Open the **Terminal Buddy** panel in the bottom activity bar.
-4. (Optional) Run `Terminal Buddy: Set AI API Key` via the Command Palette to enable AI features.
+### 3. Basic Usage
+- **Autocomplete**: Start typing in the terminal for AI-powered completions.
+- **Error Fix**: If a command fails, click the mascot or the log entry to see the fix.
+- **Magic Prompt**: Use the input box in the Explorer to generate commands.
 
-### Supported AI Providers
-| Provider | Setup | Cost |
-|----------|-------|------|
-| **Google Gemini** | [aistudio.google.com](https://aistudio.google.com) | ✅ Free |
-| **Groq (Llama)** | [console.groq.com](https://console.groq.com) | ✅ Free Tier |
-| **Anthropic Claude**| [console.anthropic.com](https://console.anthropic.com) | 💳 Paid |
-| **OpenAI GPT** | [platform.openai.com](https://platform.openai.com) | 💳 Paid |
+### 4. Development Loop
+1. `git clone https://github.com/AmanTShekar/zenith-terminal-buddy.git`
+2. `npm install`
+3. Press `F5` to start debugging.
+4. Run `npm run verify` before submitting PRs.
 
 ---
 
-## 🔒 Security, Privacy & Liability
+## 🤝 Contributing
+
+We love contributions! Please read our [CONTRIBUTING.md](CONTRIBUTING.md) to get started.
+
+---
+
+## 🔒 Security & Privacy
 
 > [!IMPORTANT]
-> **Data Handling & API Usage**  
-> Terminal Buddy is an Open Source project provided **"AS IS"**. By using this software, you acknowledge and agree to the following:
-> 1.  **Direct Communication**: When AI features are enabled, Terminal Buddy sends the **last few lines of terminal output** and the **failed command** to the AI provider of your choice (via YOUR API keys).
-> 2.  **No Intermediary**: Data is sent directly from your machine to the AI provider's API. We do not store, intercept, or mirror your terminal data on any external servers.
-> 3.  **Third-Party Liability**: We are NOT responsible for how third-party AI providers (Google, OpenAI, Anthropic, etc.) handle your data. Please review their respective privacy policies.
-> 4.  **No Warranty**: We accept NO liability for any data loss, security breaches, or system issues that may result from using this software or from the suggestions provided by the AI.
-
-Always verify commands before executing them, especially those suggested by AI. Terminal Buddy is a *guide*, not a substitute for developer judgment.
-
----
-
-## 🚧 Status: Heavy Development & How to Contribute
-
-This project is currently under **heavy development** to perfect its features and increase reliability. It is a lightweight companion that aims to be zero-config.
-
-**We need your help!**  
-Want to contribute but don't know where to start? 
-- Check out issues labeled **`good first issue`** for beginner-friendly tasks.
-- Look for **`help-wanted`** for features we actively need assistance with.
-- Want to create a new pet skin or add a new AI provider? We are open to PRs!
-
-### Quick Steps to Contribute:
-1. Fork the repo and create your branch (`git checkout -b feature/AmazingFeature`).
-2. Make your amazing changes.
-3. Commit your changes (`git commit -m 'Add some AmazingFeature'`).
-4. Push to the branch (`git push origin feature/AmazingFeature`).
-5. Open a Pull Request!
-
-We encourage anyone to contribute and help make Terminal Buddy better. Check out our full [Contributing Guidelines](CONTRIBUTING.md) if you want to get involved.
----
-
-## 👤 Creator Space
-
-Terminal Buddy is maintained by **[Zenith Team/Aman.T.Shekar]** and the open-source community.
-
-If you like this project, consider giving it a ⭐ on GitHub and sharing it with your team!
+> - **Direct Communication**: Data is sent directly from your machine to YOUR AI provider.
+> - **No Intermediary**: We do not store or mirror your terminal data.
+> - **Credentials**: API keys are stored securely in the VS Code Secret Storage (OS Keychain).
 
 ---
 
@@ -126,5 +108,5 @@ Distributed under the **MIT License**. See `LICENSE` for more information.
 ---
 
 <p align="center">
-  <i>Built for developers who just want a friend in their terminal. ❤️</i>
+  <i>Built with ❤️ for developers everywhere.</i>
 </p>

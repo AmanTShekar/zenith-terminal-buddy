@@ -1,12 +1,12 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import * as vscode from 'vscode';
 
 export interface Executable {
   name: string;
   path: string;
   type: 'script' | 'binary' | 'npm' | 'python' | 'go';
   command: string;
+  group: string; // The folder name or file name to group by
 }
 
 export class ExecutableScanner {
@@ -14,82 +14,93 @@ export class ExecutableScanner {
     if (!dir || !fs.existsSync(dir)) return [];
 
     const executables: Executable[] = [];
-    try {
-      const files = fs.readdirSync(dir);
+    const rootDir = dir;
 
-      // ── NPM Scripts ─────────────────────────────────────────────────────
-      const pkgPath = path.join(dir, 'package.json');
-      if (fs.existsSync(pkgPath)) {
-        const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
-        if (pkg.scripts) {
-          for (const [name, cmd] of Object.entries(pkg.scripts)) {
-            executables.push({
-              name: `npm run ${name}`,
-              path: pkgPath,
-              type: 'npm',
-              command: `npm run ${name}`
-            });
-          }
-        }
-      }
-
-      // ── Shell Scripts & Binaries ────────────────────────────────────────
-      for (const file of files) {
-        const fullPath = path.join(dir, file);
-        const stats = fs.statSync(fullPath);
-        if (stats.isDirectory()) continue;
-
-        const ext = path.extname(file).toLowerCase();
+    // 2. Recursive scan for all files
+    const walk = (currentDir: string, depth: number = 0) => {
+      if (depth > 5) return;
+      try {
+        const files = fs.readdirSync(currentDir);
         
-        if (process.platform === 'win32') {
-          if (['.bat', '.cmd', '.ps1', '.exe'].includes(ext)) {
+        // Find group name relative to root
+        const relative = path.relative(rootDir, currentDir);
+        const group = relative === '' ? 'Root' : relative;
+
+        for (const file of files) {
+          const fullPath = path.join(currentDir, file);
+          const stats = fs.statSync(fullPath);
+          
+          if (stats.isDirectory()) {
+            if (file === 'node_modules' || file === '.git' || file === 'dist' || file === 'venv' || file === '.venv' || file === 'build' || file === 'target') continue;
+            walk(fullPath, depth + 1);
+            continue;
+          }
+
+          const ext = path.extname(file).toLowerCase();
+          
+          if (file === 'package.json') {
+             try {
+               const pkg = JSON.parse(fs.readFileSync(fullPath, 'utf8'));
+               if (pkg.scripts) {
+                 for (const [name] of Object.entries(pkg.scripts)) {
+                   executables.push({
+                     name: `npm run ${name}`,
+                     path: fullPath,
+                     type: 'npm',
+                     command: `npm run ${name}`,
+                     group: group
+                   });
+                 }
+               }
+             } catch (e) {}
+          } else if (ext === '.py') {
             executables.push({
               name: file,
               path: fullPath,
-              type: ext === '.exe' ? 'binary' : 'script',
-              command: file.startsWith('./') ? file : `./${file}`
+              type: 'python',
+              command: process.platform === 'win32' ? `python "${fullPath}"` : `python3 "${fullPath}"`,
+              group: group
             });
-          }
-        } else {
-          // Check for unix executable bit
-          try {
-            fs.accessSync(fullPath, fs.constants.X_OK);
+          } else if (ext === '.go' && !file.endsWith('_test.go')) {
+            executables.push({
+              name: `Go: ${file}`,
+              path: fullPath,
+              type: 'go',
+              command: `go run "${fullPath}"`,
+              group: group
+            });
+          } else if (file === 'docker-compose.yml' || file === 'docker-compose.yaml') {
+            executables.push({
+              name: 'Docker Compose Up',
+              path: fullPath,
+              type: 'binary',
+              command: 'docker-compose up -d',
+              group: group
+            });
+          } else if (file === 'Makefile') {
+            executables.push({
+              name: `Make (${file})`,
+              path: fullPath,
+              type: 'script',
+              command: 'make',
+              group: group
+            });
+          } else if (['.sh', '.bat', '.ps1'].includes(ext)) {
             executables.push({
               name: file,
               path: fullPath,
-              type: stats.size > 100000 ? 'binary' : 'script', // Heuristic for binary vs script
-              command: `./${file}`
+              type: 'script',
+              command: process.platform === 'win32' ? `"${fullPath}"` : `./"${file}"`,
+              group: group
             });
-          } catch {
-             // Not executable
           }
         }
-
-        // ── Python Main ───────────────────────────────────────────────────
-        if (file === 'main.py' || file === 'app.py' || file === 'manage.py') {
-          executables.push({
-            name: `python ${file}`,
-            path: fullPath,
-            type: 'python',
-            command: `python ${file}`
-          });
-        }
+      } catch (err) {
+        // Skip inaccessible directories
       }
+    };
 
-      // ── Go main ────────────────────────────────────────────────────────
-      if (files.includes('go.mod') && (files.includes('main.go') || files.includes('cmd'))) {
-        executables.push({
-          name: 'go run .',
-          path: path.join(dir, 'go.mod'),
-          type: 'go',
-          command: 'go run .'
-        });
-      }
-
-    } catch (err) {
-      console.error('[Terminal Buddy] Failed to scan executables:', err);
-    }
-
+    walk(dir);
     return executables;
   }
 }

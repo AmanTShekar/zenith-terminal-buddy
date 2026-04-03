@@ -133,7 +133,7 @@ export class GitHelper {
         hasConflicts,
         lastCommitMessage,
         lastCommitTime,
-        remoteUrl: await this.getRemoteUrl(cwd) || undefined
+        remoteUrl: undefined // Fetched separately via getRemoteUrl() to avoid redundant shell exec
       };
 
       this.cache = { status, path: cwd, at: Date.now() };
@@ -147,47 +147,61 @@ export class GitHelper {
   getSuggestions(status: GitStatus): { cmd: string; label: string; reason: string }[] {
     const suggestions: { cmd: string; label: string; reason: string }[] = [];
 
-    if (status.uncommittedCount > 0) {
+    if (status.hasConflicts) {
       suggestions.push({
-        cmd: 'git add -A && git commit -m ""',
-        label: 'Commit all changes',
-        reason: `You have ${status.uncommittedCount} uncommitted file(s).`,
+        cmd: 'git merge --abort',
+        label: 'Abort Merge',
+        reason: 'You have conflicts. If it\'s too messy, you can abort.',
+      });
+      suggestions.push({
+        cmd: 'git status',
+        label: 'Check Conflicts',
+        reason: 'See which files need manual resolution.',
+      });
+    } else if (status.uncommittedCount > 0) {
+      suggestions.push({
+        cmd: 'git add . && git commit -m "update"',
+        label: 'Quick Commit',
+        reason: `Save your ${status.uncommittedCount} change(s).`,
       });
     }
 
     if (status.aheadCount > 0) {
       suggestions.push({
-        cmd: 'git push origin HEAD',
-        label: 'Push commits',
-        reason: `You're ${status.aheadCount} commit(s) ahead of remote.`,
+        cmd: 'git push',
+        label: 'Push Changes',
+        reason: `You are ${status.aheadCount} commit(s) ahead.`,
       });
     }
 
     if (status.behindCount > 0) {
       suggestions.push({
         cmd: 'git pull --rebase',
-        label: 'Pull latest changes',
-        reason: `You're ${status.behindCount} commit(s) behind remote.`,
-      });
-    }
-
-    if (status.isMainOrMaster && !status.isDetached) {
-      suggestions.push({
-        cmd: 'git checkout -b feature/',
-        label: 'Create a feature branch',
-        reason: `You're on ${status.branch} — consider working on a feature branch.`,
-      });
-    }
-
-    if (status.hasConflicts) {
-      suggestions.push({
-        cmd: 'git diff --name-only --diff-filter=U',
-        label: 'View conflicting files',
-        reason: 'You have merge conflicts that need resolving.',
+        label: 'Update Branch',
+        reason: `Remote has ${status.behindCount} new commit(s).`,
       });
     }
 
     return suggestions;
+  }
+
+  getGuide(status: GitStatus): string {
+    if (status.hasConflicts) {
+      return "🚨 **Yikes! You have merge conflicts.** Open the red files in the tree and look for `<<<<<<<`. Choose the right code, save, then `git add` them. You can also Abort if needed.";
+    }
+    if (status.behindCount > 0) {
+      return `🔄 **Remote is ahead.** You are missing ${status.behindCount} commits. I recommend a \`git pull --rebase\` to keep your history clean!`;
+    }
+    if (status.aheadCount > 0) {
+      return `🚀 **Ready to push!** You have ${status.aheadCount} commits locally that aren't on the server yet.`;
+    }
+    if (status.uncommittedCount > 0) {
+      return `📝 **Unsaved work detected.** You've modified ${status.uncommittedCount} items. Don't forget to commit your progress!`;
+    }
+    if (status.isMainOrMaster && !status.isDetached) {
+      return "🌿 **You're on the main branch.** For new features, it's safer to create a new branch with `git checkout -b branch-name`.";
+    }
+    return "✅ **Everything looks clean!** Your workspace matches the repository perfectly.";
   }
 
   async getDetailedTree(cwd: string): Promise<any> {

@@ -1,5 +1,6 @@
 
 import * as vscode from 'vscode';
+import * as path from 'path';
 import { PanelProvider } from './panel/PanelProvider';
 import { TerminalWatcher } from './core/TerminalWatcher';
 import { ProjectScanner } from './core/ProjectScanner';
@@ -14,7 +15,8 @@ import { SafetyEngine } from './core/SafetyEngine';
 import { TerminalPetProvider } from './ui/TerminalPetProvider';
 import { PortMonitor } from './core/PortMonitor';
 import { ExecutableScanner } from './core/ExecutableScanner';
-import { SCANNER_DELAY_MS, CommandEntry } from './types';
+import { TerminalCompletionProvider, TerminalInlineCompletionProvider } from './core/TerminalCompletionProvider';
+import { SCANNER_DELAY_MS, CommandEntry, WorkspaceMap } from './types';
 
 let panelProvider: PanelProvider;
 
@@ -30,7 +32,7 @@ export function activate(context: vscode.ExtensionContext): void {
   const suggestionEngine = new SuggestionEngine();
   const petManager = new PetManager(context);
   const aiClient = new AIClient(context);
-  const terminalWatcher = new TerminalWatcher();
+  const terminalWatcher = new TerminalWatcher(100, aiClient);
   const safetyEngine = new SafetyEngine(aiClient);
   const petProvider = new TerminalPetProvider(commandLogger);
   const portMonitor = new PortMonitor();
@@ -104,6 +106,31 @@ export function activate(context: vscode.ExtensionContext): void {
         panelProvider.sendAiThinking();
         panelProvider.sendExplanation(explanation);
       }
+    }),
+    vscode.commands.registerCommand('terminalBuddy.runExecutable', async (executable: any) => {
+      if (!executable) return;
+      const cmd: string = typeof executable === 'string' ? executable : (executable.command || '');
+      if (!cmd) return;
+      const label: string = typeof executable === 'string' ? executable : (executable.name || cmd);
+      const cwd: string | undefined = executable.path
+        ? path.dirname(executable.path)
+        : vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+      const terminalName = `Buddy: ${label}`;
+      let terminal = vscode.window.terminals.find(t => t.name === terminalName);
+      if (!terminal) { terminal = vscode.window.createTerminal({ name: terminalName, cwd }); }
+      terminal.show();
+      terminal.sendText(cmd);
+    }),
+    vscode.commands.registerCommand('terminalBuddy.moveToDirectory', async (dirPath: string) => {
+      if (!dirPath) return;
+      const terminalName = `Buddy: Path Navigator`;
+      let terminal = vscode.window.terminals.find(t => t.name === terminalName);
+      if (!terminal) {
+        terminal = vscode.window.createTerminal({ name: terminalName, cwd: dirPath });
+      } else {
+        terminal.sendText(`cd "${dirPath}"`);
+      }
+      terminal.show();
     })
   );
 
@@ -120,29 +147,46 @@ export function activate(context: vscode.ExtensionContext): void {
     console.warn('[Terminal Buddy] registerTerminalDecorationProvider not found. Gutter pet icons disabled.');
   }
 
+  // 📝 Register Terminal Completion Provider (Proposed API)
+  if ((vscode.languages as any).registerTerminalInlineCompletionItemProvider) {
+    context.subscriptions.push(
+      (vscode.languages as any).registerTerminalInlineCompletionItemProvider(
+        new TerminalInlineCompletionProvider(terminalWatcher, aiClient)
+      )
+    );
+  }
+
   // ── Wire up terminal events → everything else ────────────────────────────
   context.subscriptions.push(
-    terminalWatcher.onCommandStart(async (evt) => {
-      petManager.onCommandStart(evt.cmd);
-      panelProvider.sendActiveCommands();
+    terminalWatcher.onCommandStart((evt) => {
+      try {
+        petManager.onCommandStart(evt.cmd);
+        panelProvider.sendActiveCommands();
 
-      // 1. Real-Time Terminal Safety (Interception)
-      const config = vscode.workspace.getConfiguration('terminalBuddy');
-      if (config.get<boolean>('enableTerminalSafety')) {
-        const projectInfo = projectScanner.getCurrentProject(evt.cwd);
-        const audit = await safetyEngine.audit(evt.cmd, evt.cwd, projectInfo?.type ?? 'unknown');
+        // 🛡️ Real-Time Terminal Safety — fire-and-forget, never blocks the event pipeline
+        const config = vscode.workspace.getConfiguration('terminalBuddy');
+        if (config.get<boolean>('enableTerminalSafety')) {
+          (async () => {
+            try {
+              const projectInfo = projectScanner.getCurrentProject(evt.cwd);
+              const audit = await safetyEngine.audit(evt.cmd, evt.cwd, projectInfo?.type ?? 'unknown');
 
-        if (audit.isDangerous) {
-          // INTERCEPTION: Kill the command if interception is enabled and it requires confirmation
-          if (audit.requiresConfirmation && config.get<boolean>('enableInterception')) {
-            terminalWatcher.stopCommand(evt.id);
-            panelProvider.sendSafetyAlert(audit, evt.cmd);
-          }
-
-          vscode.window.showWarningMessage(`🛡️ Terminal Buddy Safety Alert: ${audit.explanation}`);
-          panelProvider.playAlertSound();
-          petProvider.refresh();
+              if (audit.isDangerous) {
+                if (audit.requiresConfirmation && config.get<boolean>('enableInterception')) {
+                  terminalWatcher.stopCommand(evt.id);
+                  panelProvider.sendSafetyAlert(audit, evt.cmd);
+                }
+                vscode.window.showWarningMessage(`🛡️ Terminal Buddy Safety Alert: ${audit.explanation}`);
+                panelProvider.playAlertSound();
+                petProvider.refresh();
+              }
+            } catch (err) {
+              console.warn('[Terminal Buddy] Safety audit failed:', err);
+            }
+          })();
         }
+      } catch (err) {
+        console.error('[Terminal Buddy] onCommandStart handler error:', err);
       }
     })
   );
@@ -170,7 +214,7 @@ export function activate(context: vscode.ExtensionContext): void {
             const now = Date.now();
             const timeSinceLast = now - lastAiCallTime;
 
-            const triggerAi = async () => {
+              const triggerAi = async () => {
               lastAiCallTime = Date.now();
               panelProvider.sendAiThinking();
               const projectInfo = projectScanner.getCurrentProject(entry.cwd);
@@ -183,6 +227,7 @@ export function activate(context: vscode.ExtensionContext): void {
                   summary: "I'm having trouble analyzing this error right now. My connection might be acting up!",
                   cause: '', fix: '', suggestedCommands: [], source: 'ai', fromCache: false
                 });
+                petManager.onErrorExplained(); // 🛡️ Always reset pet state, even on failure
               }
             };
 
@@ -234,8 +279,20 @@ export function activate(context: vscode.ExtensionContext): void {
     }),
     terminalWatcher.onData((e) => {
       panelProvider.sendTerminalData(e.data);
+    }),
+    terminalWatcher.onSensitivityDetected((terminal) => {
+      panelProvider.sendWarning(`⚠️ Sensitivity detected in terminal "${terminal.name}". Pausing logs for safety.`);
     })
   );
+
+  // 🔔 Listen for settings changes to update UI
+  vscode.workspace.onDidChangeConfiguration(e => {
+    if (e.affectsConfiguration('terminalBuddy.selectedModel') || e.affectsConfiguration('terminalBuddy.aiProvider')) {
+       const provider = vscode.workspace.getConfiguration('terminalBuddy').get<string>('aiProvider', 'gemini');
+       const modelName = aiClient.getActiveModelName();
+       panelProvider.sendAiInfo(provider!.toUpperCase(), modelName);
+    }
+  });
 
   // ── Terminal Links (Underline errors) ────────────────────────────────────
   context.subscriptions.push(
@@ -307,6 +364,13 @@ export function activate(context: vscode.ExtensionContext): void {
   );
 
   context.subscriptions.push(terminalWatcher, petManager);
+  
+  // 🐾 Listen for pet changes to update the UI mascot
+  context.subscriptions.push(
+    petManager.onDidChange((state) => {
+      panelProvider.sendPetState(state);
+    })
+  );
 
   console.log('[Terminal Buddy] Activated successfully.');
 }

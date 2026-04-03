@@ -41,13 +41,16 @@ export class PetManager implements vscode.Disposable {
 
     // Load persisted state or create default
     const saved = context.globalState.get<PetState>(STORAGE_KEY);
+    const config = vscode.workspace.getConfiguration('terminalBuddy');
+    const userType = config.get<PetType>('petType', 'cat');
+    const userName = config.get<string>('petName', 'Buddy');
+
     if (saved) {
-      this.state = saved;
+      this.state = { ...saved, type: userType, name: userName };
     } else {
-      const config = vscode.workspace.getConfiguration('terminalBuddy');
       this.state = {
-        type: config.get<PetType>('petType', 'cat'),
-        name: config.get<string>('petName', 'Buddy'),
+        type: userType,
+        name: userName,
         mood: 'excited', // new workspace = excited!
         xp: 0,
         level: 1,
@@ -227,11 +230,13 @@ export class PetManager implements vscode.Disposable {
     this.state.mood = mood;
     this.save();
 
-    this.moodTimer = setTimeout(() => {
-      this.moodTimer = null;
-      this.state.mood = 'neutral';
-      this.save();
-    }, durationMs);
+    if (durationMs > 0) {
+      this.moodTimer = setTimeout(() => {
+        this.moodTimer = null;
+        this.state.mood = 'neutral';
+        this.save();
+      }, durationMs);
+    }
   }
 
   private resetInactivityTimer(): void {
