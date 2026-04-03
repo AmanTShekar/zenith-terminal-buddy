@@ -9,6 +9,7 @@ import { redact } from './RedactionUtils';
 const ANSI_RE = /[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><~]/g;
 
 function stripAnsi(str: string): string {
+  if (!str || str.length > 100000) { return str.replace(ANSI_RE, ''); } // Fallback for very large strings
   return str.replace(ANSI_RE, '');
 }
 
@@ -185,42 +186,48 @@ export class TerminalWatcher implements vscode.Disposable {
     );
 
     // ── Fallback: Raw Terminal Data (for non-integrated shells) ─────────
-    this.disposables.push(
-      (vscode.window as any).onDidWriteTerminalData((e: any) => {
-        const terminal = e.terminal;
-        if (this.shellIntegration.get(terminal)) { return; }
-        
-        let buf = this.buffers.get(terminal);
-        if (!buf) {
-          buf = {
-            id: generateId(),
-            cmd: '(Raw Stream)',
-            cwd: vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '',
-            output: '',
-            startTime: Date.now(),
-          };
-          this.buffers.set(terminal, buf);
-        }
+    if (typeof (vscode.window as any).onDidWriteTerminalData === 'function') {
+      try {
+        this.disposables.push(
+          (vscode.window as any).onDidWriteTerminalData((e: any) => {
+            const terminal = e.terminal;
+            if (this.shellIntegration.get(terminal)) { return; }
+            
+            let buf = this.buffers.get(terminal);
+            if (!buf) {
+              buf = {
+                id: generateId(),
+                cmd: '(Raw Stream)',
+                cwd: vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '',
+                output: '',
+                startTime: Date.now(),
+              };
+              this.buffers.set(terminal, buf);
+            }
 
-        const rawData = e.data;
-        const text = stripAnsi(rawData);
-        buf.output += text;
+            const rawData = e.data;
+            const text = stripAnsi(rawData);
+            buf.output += text;
 
-        this._onData.fire({ terminal, data: text });
+            this._onData.fire({ terminal, data: text });
 
-        if (buf.output.length > MAX_BUFFER_SIZE) {
-          buf.output = buf.output.slice(-MAX_BUFFER_SIZE / 2);
-        }
+            if (buf.output.length > MAX_BUFFER_SIZE) {
+              buf.output = buf.output.slice(-MAX_BUFFER_SIZE / 2);
+            }
 
-        if (this.debounceTimers.has(terminal)) {
-          clearTimeout(this.debounceTimers.get(terminal)!);
-        }
+            if (this.debounceTimers.has(terminal)) {
+              clearTimeout(this.debounceTimers.get(terminal)!);
+            }
 
-        this.debounceTimers.set(terminal, setTimeout(() => {
-          this.finalizeRawBuffer(terminal);
-        }, DEBOUNCE_TERMINAL_MS * 10));
-      }),
-    );
+            this.debounceTimers.set(terminal, setTimeout(() => {
+              this.finalizeRawBuffer(terminal);
+            }, DEBOUNCE_TERMINAL_MS * 10));
+          }),
+        );
+      } catch (err) {
+        console.warn('[Terminal Buddy] Raw data fallback disabled due to API restriction.');
+      }
+    }
 
     // ── Shell integration availability notification ─────────────────────
     this.disposables.push(
@@ -352,19 +359,30 @@ export class TerminalWatcher implements vscode.Disposable {
       for await (const chunk of stream as AsyncIterable<string>) {
         if (!this.buffers.has(terminal)) { break; }
 
-        const text = chunk;
-        if (/[Pp]assword:|PASS[:=]|SECRET[:=]/i.test(text)) {
-            this._onSensitivityDetected.fire(terminal);
-            continue; 
-        }
-
-        if (buffer.output.length + text.length > MAX_BUFFER_SIZE) {
-          buffer.output = (buffer.output + text).slice(-MAX_BUFFER_SIZE);
+        // 🛡️ Stability: Limit processing frequency for extremely fast outputs
+        if (chunk.length > 50000) {
+          // Large chunk detected - likely a log dump. 
+          // Truncate to avoid blocking the extension host thread with regex/redaction
+          const text = chunk.slice(0, 10000) + '\n... [Buddy: Large Output Truncated] ...\n' + chunk.slice(-10000);
+          this.processChunk(terminal, buffer, text);
         } else {
-          buffer.output += text;
+          this.processChunk(terminal, buffer, chunk);
         }
       }
     } catch { }
+  }
+
+  private processChunk(terminal: vscode.Terminal, buffer: ExecutionBuffer, text: string): void {
+    if (/[Pp]assword:|PASS[:=]|SECRET[:=]/i.test(text)) {
+        this._onSensitivityDetected.fire(terminal);
+        return; 
+    }
+
+    if (buffer.output.length + text.length > MAX_BUFFER_SIZE) {
+      buffer.output = (buffer.output + text).slice(-MAX_BUFFER_SIZE);
+    } else {
+      buffer.output += text;
+    }
   }
 
   private extractErrorOutput(output: string): string {

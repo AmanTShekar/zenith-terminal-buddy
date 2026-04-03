@@ -21,7 +21,8 @@ import { SCANNER_DELAY_MS, CommandEntry, WorkspaceMap } from './types';
 let panelProvider: PanelProvider;
 
 export function activate(context: vscode.ExtensionContext): void {
-  console.log('[Terminal Buddy] Activating...');
+  try {
+    console.log('[Terminal Buddy] Activating...');
 
   // ── Core services ────────────────────────────────────────────────────────
   const commandLogger = new CommandLogger(context);
@@ -373,7 +374,11 @@ export function activate(context: vscode.ExtensionContext): void {
     })
   );
 
-  console.log('[Terminal Buddy] Activated successfully.');
+    console.log('[Terminal Buddy] Activated successfully.');
+  } catch (err) {
+    vscode.window.showErrorMessage(`Terminal Buddy Activation Failed: ${err}`);
+    console.error('[Terminal Buddy] Activation Error:', err);
+  }
 }
 
 export function deactivate(): void {

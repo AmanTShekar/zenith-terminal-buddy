@@ -2,23 +2,34 @@
   "name": "terminal-buddy",
   "displayName": "Terminal Buddy",
   "description": "Your friendly terminal companion — explains errors, suggests commands, tracks history, helps with git, and has a pet.",
-  "version": "0.0.1",
+  "version": "0.0.4",
   "publisher": "terminal-buddy",
+  "enabledApiProposals": [
+    "terminalDataWriteEvent"
+  ],
   "repository": {
     "type": "git",
     "url": "https://github.com/AmanTShekar/zenith-terminal-buddy.git"
   },
   "engines": {
-    "vscode": "^1.93.0"
+    "vscode": "^1.82.0"
   },
-  "categories": ["Other"],
-  "keywords": ["terminal", "error", "helper", "ai", "companion", "pet", "git"],
-  "activationEvents": [],
-  "enabledApiProposals": [
-    "terminalDataWriteEvent",
-    "terminalCompletionProvider",
-    "terminalQuickFixProvider",
-    "terminalSelection"
+  "categories": [
+    "Other"
+  ],
+  "keywords": [
+    "terminal",
+    "error",
+    "helper",
+    "ai",
+    "companion",
+    "pet",
+    "git"
+  ],
+  "activationEvents": [
+    "onView:terminalBuddy.panel",
+    "onCommand:terminalBuddy.openPanel",
+    "onStartupFinished"
   ],
   "main": "./dist/extension.js",
   "contributes": {
@@ -51,7 +62,12 @@
         "terminalBuddy.petType": {
           "type": "string",
           "default": "cat",
-          "enum": ["cat", "dog", "robot", "ghost"],
+          "enum": [
+            "cat",
+            "dog",
+            "robot",
+            "ghost"
+          ],
           "enumDescriptions": [
             "A friendly cat 🐱",
             "A loyal dog 🐶",
@@ -73,7 +89,12 @@
         "terminalBuddy.aiProvider": {
           "type": "string",
           "default": "gemini",
-          "enum": ["gemini", "openai", "claude", "groq"],
+          "enum": [
+            "gemini",
+            "openai",
+            "claude",
+            "groq"
+          ],
           "enumDescriptions": [
             "Google Gemini — free at aistudio.google.com",
             "OpenAI GPT — requires paid API key from platform.openai.com",
@@ -168,18 +189,18 @@
     "verify": "npm run lint && npm run compile && npm run build"
   },
   "devDependencies": {
-    "@types/vscode": "^1.93.0",
-    "@types/node": "^20.0.0",
-    "@types/mocha": "^10.0.7",
     "@types/glob": "^8.1.0",
+    "@types/mocha": "^10.0.7",
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.82.0",
     "@typescript-eslint/eslint-plugin": "^7.14.1",
     "@typescript-eslint/parser": "^7.14.1",
-    "typescript": "^5.5.0",
-    "esbuild": "^0.21.0",
-    "@vscode/vsce": "^3.0.0",
     "@vscode/test-electron": "^2.4.0",
+    "@vscode/vsce": "^3.0.0",
+    "esbuild": "^0.28.0",
     "eslint": "^8.57.0",
     "glob": "^10.4.2",
-    "mocha": "^10.4.0"
+    "mocha": "^7.2.0",
+    "typescript": "^5.5.0"
   }
 }

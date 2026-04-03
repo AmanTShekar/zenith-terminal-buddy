@@ -1,5 +1,6 @@
 export const PANEL_JS = `(function() {
   'use strict';
+  console.log('[Terminal Buddy] Webview script heartbeat.');
   var vsc = acquireVsCodeApi();
   var hatched = false;
   var allLogs = [];

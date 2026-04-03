@@ -37,6 +37,22 @@ const SECRET_PATTERNS: Array<{ name: string; pattern: RegExp }> = [
   { name: 'Slack Token', pattern: /xox[baprs]-[0-9a-zA-Z]{10,}-?[0-9a-zA-Z]{10,}-?[0-9a-zA-Z]{10,}/g },
   { name: 'Heroku API Key', pattern: /[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/g },
   { name: 'Firebase Config', pattern: /apiKey:\s*["'](AIzaSy[a-zA-Z0-9\-_]{33})["']/gi },
+  
+  // Azure
+  { name: 'Azure Connection String', pattern: /DefaultEndpointsProtocol=https;AccountName=[a-z0-9]+;AccountKey=[a-zA-Z0-9\/+]{88};/g },
+  
+  // Discord / Slack
+  { name: 'Discord Token', pattern: /[a-zA-Z0-9]{24}\.[a-zA-Z0-9]{6}\.[a-zA-Z0-9]{27}/g },
+  
+  // Twilio
+  { name: 'Twilio Auth Token', pattern: /AC[a-f0-9]{32}/g }, // SID
+  { name: 'Twilio Auth Token', pattern: /(?:twilio_auth_token|TWILIO_AUTH_TOKEN)[\s=:"']([a-f0-9]{32})/gi },
+
+  // Generic UUIDs (often used as session keys)
+  { name: 'UUID', pattern: /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi },
+
+  // IPv4 addresses (optional, but good for privacy)
+  { name: 'IP Address', pattern: /\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b/g },
 ];
 
 /**
