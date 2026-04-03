@@ -1,3 +1,4 @@
+import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -11,86 +12,84 @@ export interface Executable {
 
 export class ExecutableScanner {
   public async scan(dir: string): Promise<Executable[]> {
-    if (!dir || !fs.existsSync(dir)) return [];
-
+    if (!dir) { return []; }
+    const uri = vscode.Uri.file(dir);
     const executables: Executable[] = [];
-    const rootDir = dir;
 
-    // 2. Recursive scan for all files
-    const walk = (currentDir: string, depth: number = 0) => {
-      if (depth > 5) return;
+    const walk = async (currentUri: vscode.Uri, depth: number = 0) => {
+      if (depth > 5) { return; }
       try {
-        const files = fs.readdirSync(currentDir);
-        
-        // Find group name relative to root
-        const relative = path.relative(rootDir, currentDir);
+        const entries = await vscode.workspace.fs.readDirectory(currentUri);
+        const relative = path.relative(dir, currentUri.fsPath);
         const group = relative === '' ? 'Root' : relative;
 
-        for (const file of files) {
-          const fullPath = path.join(currentDir, file);
-          const stats = fs.statSync(fullPath);
-          
-          if (stats.isDirectory()) {
-            if (file === 'node_modules' || file === '.git' || file === 'dist' || file === 'venv' || file === '.venv' || file === 'build' || file === 'target') continue;
-            walk(fullPath, depth + 1);
+        for (const [name, type] of entries) {
+          const fullUri = vscode.Uri.joinPath(currentUri, name);
+
+          if (type === vscode.FileType.Directory) {
+            if (['node_modules', '.git', 'dist', 'venv', '.venv', 'build', 'target'].includes(name)) { 
+              continue; 
+            }
+            await walk(fullUri, depth + 1);
             continue;
           }
 
-          const ext = path.extname(file).toLowerCase();
+          const ext = path.extname(name).toLowerCase();
           
-          if (file === 'package.json') {
-             try {
-               const pkg = JSON.parse(fs.readFileSync(fullPath, 'utf8'));
-               if (pkg.scripts) {
-                 for (const [name] of Object.entries(pkg.scripts)) {
-                   executables.push({
-                     name: `npm run ${name}`,
-                     path: fullPath,
-                     type: 'npm',
-                     command: `npm run ${name}`,
-                     group: group
-                   });
-                 }
-               }
-             } catch (e) {}
+          if (name === 'package.json') {
+            try {
+              const content = await vscode.workspace.fs.readFile(fullUri);
+              const pkg = JSON.parse(Buffer.from(content).toString('utf8'));
+              if (pkg.scripts) {
+                for (const [scriptName] of Object.entries(pkg.scripts)) {
+                  executables.push({
+                    name: `npm run ${scriptName}`,
+                    path: fullUri.fsPath,
+                    type: 'npm',
+                    command: `npm run ${scriptName}`,
+                    group: group
+                  });
+                }
+              }
+            } catch (e) {}
           } else if (ext === '.py') {
             executables.push({
-              name: file,
-              path: fullPath,
+              name: name,
+              path: fullUri.fsPath,
               type: 'python',
-              command: process.platform === 'win32' ? `python "${fullPath}"` : `python3 "${fullPath}"`,
+              command: process.platform === 'win32' ? `python "${fullUri.fsPath}"` : `python3 "${fullUri.fsPath}"`,
               group: group
             });
-          } else if (ext === '.go' && !file.endsWith('_test.go')) {
+          } else if (ext === '.go' && !name.endsWith('_test.go')) {
             executables.push({
-              name: `Go: ${file}`,
-              path: fullPath,
+              name: `Go: ${name}`,
+              path: fullUri.fsPath,
               type: 'go',
-              command: `go run "${fullPath}"`,
+              command: `go run "${fullUri.fsPath}"`,
               group: group
             });
-          } else if (file === 'docker-compose.yml' || file === 'docker-compose.yaml') {
+          } else if (name === 'docker-compose.yml' || name === 'docker-compose.yaml') {
             executables.push({
               name: 'Docker Compose Up',
-              path: fullPath,
+              path: fullUri.fsPath,
               type: 'binary',
               command: 'docker-compose up -d',
               group: group
             });
-          } else if (file === 'Makefile') {
+          } else if (name === 'Makefile') {
             executables.push({
-              name: `Make (${file})`,
-              path: fullPath,
+              name: `Make (${name})`,
+              path: fullUri.fsPath,
               type: 'script',
               command: 'make',
               group: group
             });
           } else if (['.sh', '.bat', '.ps1'].includes(ext)) {
             executables.push({
-              name: file,
-              path: fullPath,
+              name: name,
+              path: fullUri.fsPath,
               type: 'script',
-              command: process.platform === 'win32' ? `"${fullPath}"` : `./"${file}"`,
+              command: process.platform === 'win32' ? `"${fullUri.fsPath}"` : `./"${name}"`,
               group: group
             });
           }
@@ -100,7 +99,7 @@ export class ExecutableScanner {
       }
     };
 
-    walk(dir);
+    await walk(uri);
     return executables;
   }
 }

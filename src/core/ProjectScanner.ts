@@ -12,14 +12,18 @@ const SKIP_DIRS = new Set([
 
 export class ProjectScanner {
   private map: WorkspaceMap = { rootPath: '', projects: [], scannedAt: 0 };
+  private hasScanned = false;
 
-  async scan(): Promise<void> {
+  async scan(force = false): Promise<void> {
+    if (this.hasScanned && !force) { return; }
+    
     const folders = vscode.workspace.workspaceFolders;
     if (!folders || folders.length === 0) {
       this.map = { rootPath: '', projects: [], scannedAt: Date.now() };
+      this.hasScanned = true;
       return;
     }
-
+    // ... rest of scan ...
     const rootPath = folders[0].uri.fsPath;
     const projects: ProjectInfo[] = [];
     const visited = new Set<string>();
@@ -28,22 +32,28 @@ export class ProjectScanner {
     const tree = await this.buildFileTree(folders[0].uri, 0);
 
     for (const folder of folders) {
-      await this.walkDirectory(folder.uri, 0, projects, visited);
+      await this.walkDirectory(folder.uri, 0, projects, visited).catch(() => {});
     }
 
     this.map = { rootPath, projects, fileTree: tree, scannedAt: Date.now() };
+    this.hasScanned = true;
   }
 
   private async buildFileTree(uri: vscode.Uri, depth: number): Promise<FileNode> {
     const name = uri.fsPath.split(/[\\/]/).pop() || 'root';
     const node: FileNode = { name, type: 'directory', path: uri.fsPath, children: [] };
     
-    if (depth > 2) return node; // Keep UI tree shallow but fast
+    if (depth > SCANNER_MAX_DEPTH) { return node; } // Standardized depth
 
     try {
       const entries = await vscode.workspace.fs.readDirectory(uri);
       for (const [eName, type] of entries) {
-        if (SKIP_DIRS.has(eName) || eName.startsWith('.')) continue;
+        // ALLOW critical dotfiles for security visibility
+        const isCriticalDotfile = eName === '.env' || eName === '.env.example';
+        if (SKIP_DIRS.has(eName) || (eName.startsWith('.') && !isCriticalDotfile)) {
+          continue; 
+        }
+        
         const childUri = vscode.Uri.joinPath(uri, eName);
         if (type === vscode.FileType.Directory) {
           node.children!.push(await this.buildFileTree(childUri, depth + 1));
@@ -51,7 +61,7 @@ export class ProjectScanner {
           node.children!.push({ name: eName, type: 'file', path: childUri.fsPath });
         }
       }
-    } catch {}
+    } catch { }
     
     return node;
   }
@@ -162,25 +172,30 @@ export class ProjectScanner {
         let venvData = undefined;
         if (hasVenv || type === 'python') {
           const venvFolder = entryNames.has('.venv') ? '.venv' : (entryNames.has('venv') ? 'venv' : 'env');
+          const venvPath = vscode.Uri.joinPath(dirUri, venvFolder).fsPath;
           const isWindows = process.platform === 'win32';
           const activatePath = isWindows ? `${venvFolder}/Scripts/activate` : `${venvFolder}/bin/activate`;
           const activateCmd = isWindows ? `.\\${activatePath.replace(/\//g, '\\')}` : `source ./${activatePath}`;
           
+          // Robust check: Is the CURRENT process.env.VIRTUAL_ENV matching THIS venv folder?
+          const currentVenv = process.env.VIRTUAL_ENV;
+          const isActive = currentVenv ? (currentVenv.replace(/\\/g, '/').toLowerCase() === venvPath.replace(/\\/g, '/').toLowerCase()) : false;
+
           venvData = {
             exists: entryNames.has(venvFolder),
             path: venvFolder,
-            isActive: !!process.env.VIRTUAL_ENV,
+            isActive,
             activateCmd,
           };
         }
 
-        // ── [NEW] Entry Point Detection ────────────────────────────────────
+        // ... entry point detection ...
         const entryPoints: { label: string; path: string; cmd: string }[] = [];
         const filesArr = Array.from(entryNames);
 
         if (type === 'python') {
           const ep = filesArr.find((f) => ['main.py', 'app.py', 'run.py', 'manage.py'].includes(f));
-          if (ep) entryPoints.push({ label: `🐍 Run ${ep}`, path: ep, cmd: `python ${ep}` });
+          if (ep) { entryPoints.push({ label: `🐍 Run ${ep}`, path: ep, cmd: `python ${ep}` }); }
         } else if (type === 'rust') {
           entryPoints.push({ label: '🦀 Cargo Run', path: 'Cargo.toml', cmd: 'cargo run' });
           entryPoints.push({ label: '🦀 Cargo Test', path: 'Cargo.toml', cmd: 'cargo test' });
@@ -189,7 +204,7 @@ export class ProjectScanner {
           entryPoints.push({ label: '🐹 Go Run', path: hasMainGo ? 'main.go' : '.', cmd: `go run ${hasMainGo ? 'main.go' : '.'}` });
         } else if (type === 'java') {
           const ep = filesArr.find((f) => ['Main.java', 'App.java'].includes(f));
-          if (ep) entryPoints.push({ label: `☕ Run ${ep}`, path: ep, cmd: `javac ${ep} && java ${ep.replace('.java', '')}` });
+          if (ep) { entryPoints.push({ label: `☕ Run ${ep}`, path: ep, cmd: `javac ${ep} && java ${ep.replace('.java', '')}` }); }
         } else if (type === 'c' || type === 'cpp') {
           if (hasMakefile) {
             entryPoints.push({ label: '🔨 Make', path: 'Makefile', cmd: 'make' });
@@ -203,14 +218,14 @@ export class ProjectScanner {
           }
         } else if (type === 'node' && !hasPackageJson) {
           const ep = filesArr.find((f) => ['index.js', 'app.js', 'server.js'].includes(f));
-          if (ep) entryPoints.push({ label: `🟢 Run ${ep}`, path: ep, cmd: `node ${ep}` });
+          if (ep) { entryPoints.push({ label: `🟢 Run ${ep}`, path: ep, cmd: `node ${ep}` }); }
         } else if (type === 'csharp') {
           entryPoints.push({ label: '🎯 Dotnet Run', path: '.', cmd: 'dotnet run' });
           entryPoints.push({ label: '🎯 Dotnet Test', path: '.', cmd: 'dotnet test' });
         } else if (type === 'ruby') {
           const ep = filesArr.find((f) => ['main.rb', 'app.rb'].includes(f)) || filesArr.find(f => f.endsWith('.rb'));
-          if (ep) entryPoints.push({ label: `💎 Run ${ep}`, path: ep, cmd: `ruby ${ep}` });
-          if (hasGemfile) entryPoints.push({ label: '💎 Bundle Install', path: 'Gemfile', cmd: 'bundle install' });
+          if (ep) { entryPoints.push({ label: `💎 Run ${ep}`, path: ep, cmd: `ruby ${ep}` }); }
+          if (hasGemfile) { entryPoints.push({ label: '💎 Bundle Install', path: 'Gemfile', cmd: 'bundle install' }); }
         }
 
         projects.push({
@@ -230,14 +245,19 @@ export class ProjectScanner {
         });
       }
 
-      // Recurse into subdirectories
-      for (const [name, fileType] of entries) {
-        if (fileType !== vscode.FileType.Directory) { continue; }
-        if (SKIP_DIRS.has(name)) { continue; }
-        if (name.startsWith('.') && name !== '.git') { continue; }
+      // Recurse into subdirectories (limit depth to SCANNER_MAX_DEPTH)
+      if (depth < SCANNER_MAX_DEPTH) {
+        for (const [name, fileType] of entries) {
+          if (fileType !== vscode.FileType.Directory) { continue; }
+          if (SKIP_DIRS.has(name) || name === '.git') { continue; }
+          
+          // ALLOW critical dotfolders/dotfiles for security visibility
+          const isCriticalDot = name === '.env' || name === '.env.example';
+          if (name.startsWith('.') && !isCriticalDot) { continue; }
 
-        const childUri = vscode.Uri.joinPath(dirUri, name);
-        await this.walkDirectory(childUri, depth + 1, projects, visited);
+          const childUri = vscode.Uri.joinPath(dirUri, name);
+          await this.walkDirectory(childUri, depth + 1, projects, visited);
+        }
       }
     } catch {
       // Permission denied or other read error — skip silently

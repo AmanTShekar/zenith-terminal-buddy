@@ -198,7 +198,8 @@ export function activate(context: vscode.ExtensionContext): void {
       petProvider.refresh();
 
       if (entry.status === 'error' && entry.errorOutput) {
-        let explanation = ruleEngine.check(entry.cmd, entry.errorOutput, entry.exitCode ?? 1, entry.cwd);
+        const explanation = await ruleEngine.check(entry.cmd, entry.errorOutput, entry.exitCode ?? 1, entry.cwd);
+
 
         if (!explanation) {
           const depSuggestion = dependencyDetector.check(entry.cmd, entry.errorOutput);

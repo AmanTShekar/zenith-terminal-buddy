@@ -1,558 +1,429 @@
-export const PANEL_JS = `
-(function() {
+export const PANEL_JS = `(function() {
   'use strict';
-  const vsc = acquireVsCodeApi();
-  const T3 = '\\x60\\x60\\x60', T1 = '\\x60';
-  let streamEl = null;
-  let pendingCmd = null;
-  let currentLogData = [];
-  let terminalsMap = {};
+  var vsc = acquireVsCodeApi();
+  var hatched = false;
+  var allLogs = [];
 
-  const petEmojis = {
-    cat: { happy: '😸', worried: '😿', sleeping: '😴', excited: '🙀', scared: '🫣', neutral: '🐱' },
-    dog: { happy: '🐶', worried: '🥺', sleeping: '💤', excited: '🐕', scared: '😰', neutral: '🐕' },
-    robot: { happy: '🤖', worried: '⚠️', sleeping: '💤', excited: '🚀', scared: '🔧', neutral: '🤖' },
-    ghost: { happy: '👻', worried: '😶‍🌫️', sleeping: '💤', excited: '🎃', scared: '💀', neutral: '👻' }
+  var PET_MAP = {
+    cat: { happy: '😸', neutral: '🐱', tired: '😿', worried: '🙀', excited: '😽', scared: '🙀', sleeping: '😴' },
+    dog: { happy: '🐶', neutral: '🐕', tired: '🦮', worried: '🐕‍🦺', excited: '🐕', scared: '🐕', sleeping: '💤' },
+    robot: { happy: '🤖', neutral: '🤖', tired: '🔌', worried: '📉', excited: '🚀', scared: '⚠️', sleeping: '💤' },
+    ghost: { happy: '👻', neutral: '👻', tired: '🌫️', worried: '😨', excited: '✨', scared: '😱', sleeping: '💤' }
   };
 
-  // ── Helpers ──
-  function esc(s) { return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
-  
-  function md(t) {
-    if (!t) return '';
+  window.addEventListener('message', function(event) {
+    var msg = event.data;
+    if (!msg || !msg.type) { return; }
+
+    if (!hatched) {
+      hatched = true;
+      var emojiEl = document.getElementById('pet-emoji');
+      var moodEl = document.getElementById('pet-mood');
+      if (emojiEl && (emojiEl.textContent.trim() === '🥚' || emojiEl.textContent.trim() === 'Hatching...')) {
+         emojiEl.textContent = '🐱';
+      }
+      if (moodEl && (moodEl.textContent.trim() === 'Hatching...' || moodEl.textContent.trim() === 'Waiting...')) {
+         moodEl.textContent = 'ready';
+      }
+    }
+
     try {
-      let p = t.split(T3), o = '';
-      for (let i = 0; i < p.length; i++) {
+      switch (msg.type) {
+        case 'init': break;
+        case 'updateLog': 
+          allLogs = msg.payload || [];
+          populateProjectFilter(allLogs);
+          applyFilters();
+          break;
+        case 'updatePetState': updatePet(msg.payload); break;
+        case 'updateActiveCommands': renderLive(msg.payload); break;
+        case 'updatePorts': renderPorts(msg.payload); break;
+        case 'updateGitStatus': break;
+        case 'updateGitTree': renderGitTree(msg.payload); break;
+        case 'updateTerminalSelector': updateTerminals(msg.payload); break;
+        case 'updateExecutables': renderPkgs(msg.payload); break;
+        case 'updateStats': updateStats(msg.payload); break;
+        case 'updateAiInfo': updateAiInfo(msg.payload); break;
+        case 'updateWorkspaceMap': renderExplorer(msg.payload); break;
+        case 'aiThinking': addChatMsg('Thinking...', 'buddy thinking'); break;
+        case 'aiStreamChunk': handleStreamChunk(msg.payload); break;
+        case 'aiStreamDone': finalizeStream(); break;
+        case 'aiExplanation': renderExplanation(msg.payload); break;
+        case 'warning': showWarning(msg.payload); break;
+        case 'safetyAlert': showSafety(msg.payload); break;
+      }
+    } catch (err) {
+      console.error('[Terminal Buddy] Webview error:', err);
+    }
+  });
+
+  var streamEl = null;
+  var pendingCmd = null;
+  var terminals = [];
+
+  function esc(s) {
+    if (!s) return '';
+    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+
+  function parseMd(text) {
+    if (!text) return '';
+    try {
+      var TICK = String.fromCharCode(96);
+      var FENCE = TICK + TICK + TICK;
+      var parts = text.split(FENCE);
+      var html = '';
+      for (var i = 0; i < parts.length; i++) {
         if (i % 2 === 1) {
-          o += '<pre><code>' + esc(p[i].replace(/^\\w+\\n/, '').trim()) + '</code></pre>';
+          var content = parts[i].replace(/^[a-z]*\\n/, '');
+          html += '<pre><code>' + esc(content.trim()) + '</code></pre>';
         } else {
-          let s = esc(p[i]);
-          s = s.replace(/\\[LIVE:([^\\x5d]+)\\]/g, (m, id) => {
-            const term = terminalsMap[id];
-            if (!term) return \\x60<span class="dim">[Terminal \${id} stopped]</span>\\x60;
-            return \\x60<div class="chat-live-card">
-              <div class="chat-live-header">
-                <span>📺 \${esc(term.name)}</span>
-                <span class="dim">ID: \${esc(id)}</span>
-              </div>
-              <div class="chat-live-btns">
-                <button class="chat-live-btn chat-live-focus" data-id="\${esc(id)}"><span class="chat-live-icon">🎯</span> Focus</button>
-                <button class="chat-live-btn chat-live-kill" data-id="\${esc(id)}"><span class="chat-live-icon">💀</span> Kill</button>
-                \${term.port ? \\x60<button class="chat-live-btn chat-live-link" data-url="http://localhost:\${term.port}"><span class="chat-live-icon">🌐</span> Port \${term.port}</button>\\x60 : ''}
-              </div>
-            </div>\\x60;
+          var segment = esc(parts[i]);
+          segment = segment.replace(/\\*\\*([^*]+)\\*\\*/g, '<strong>$1</strong>');
+          segment = segment.replace(new RegExp(TICK + '([^' + TICK + ']+)' + TICK, 'g'), '<code>$1</code>');
+          segment = segment.replace(/\\[LIVE:([^\\]]+)\\]/g, function(match, id) {
+            var found = null;
+            for (var j = 0; j < terminals.length; j++) {
+              if (terminals[j].id === id) { found = terminals[j]; break; }
+            }
+            return '<button class="chat-live-token" data-id="' + esc(id) + '">📺 ' + esc(found ? found.name : id) + '</button>';
           });
-          s = s.replace(/\\*\\*([^*]+)\\*\\*/g, '<strong>$1</strong>');
-          s = s.replace(/\\*([^*]+)\\*/g, '<em>$1</em>');
-          s = s.replace(new RegExp(T1 + '([^' + T1 + ']+)' + T1, 'g'), '<code>$1</code>');
-          s = s.replace(/\\n/g, '<br>');
-          o += s;
+          html += segment.replace(/\\n/g, '<br>');
         }
-      }
-      return o;
-    } catch (e) { return esc(t); }
-  }
-
-  function ago(ts) {
-    if (!ts) return '';
-    const d = Math.floor((Date.now() - ts) / 1000);
-    if (d < 60) return d + 's ago';
-    if (d < 3600) return Math.floor(d / 60) + 'm ago';
-    return Math.floor(d / 3600) + 'h ago';
-  }
-
-  function badge(n) { return n > 0 ? \\x60<span class="tab-badge">\${n}</span>\\x60 : '' }
-
-  // ── Tabs ──
-  let errCount = 0;
-  document.querySelectorAll('.tab').forEach(tab => {
-    tab.addEventListener('click', () => {
-      document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-      document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
-      tab.classList.add('active');
-      const id = 'panel-' + tab.dataset.tab;
-      const panel = document.getElementById(id);
-      if (panel) panel.classList.add('active');
-      if (tab.dataset.tab === 'log') { errCount = 0; updateErrTab(); }
-    });
-  });
-
-  function updateErrTab() { 
-    const t = document.querySelector('[data-tab="log"]'); 
-    if (t) t.innerHTML = 'Log' + (errCount > 0 ? badge(errCount) : ''); 
-  }
-
-  // ── Pet ──
-  function updatePet(s) {
-    const em = document.getElementById('pet-emoji');
-    const mo = document.getElementById('pet-mood');
-    const lv = document.getElementById('pet-lv');
-    const fill = document.getElementById('xp-fill');
-    const name = document.getElementById('pet-name');
-    if (s.type && s.mood) {
-      const emo = petEmojis[s.type]?.[s.mood] || '🐱';
-      if (em) em.textContent = emo;
-    }
-    if (mo) mo.textContent = s.mood || 'ready';
-    if (lv) lv.textContent = 'Lv.' + (s.level || 1);
-    if (name) name.textContent = s.name || 'Buddy';
-    if (fill) fill.style.width = (s.xp % 100) + '%';
-  }
-
-  // ── Chat ──
-  const chatMsgs = document.getElementById('chat-msgs');
-  const chatInput = document.getElementById('chat-input');
-  const sendBtn = document.getElementById('send-btn');
-
-  function appendMsg(html, role) {
-    if (!chatMsgs) return null;
-    const d = document.createElement('div');
-    d.className = 'msg ' + role;
-    if (typeof html === 'string' && (role === 'user' || role.includes('thinking'))) d.innerHTML = esc(html);
-    else if (typeof html === 'string') d.innerHTML = html;
-    chatMsgs.appendChild(d);
-    chatMsgs.scrollTop = chatMsgs.scrollHeight;
-    return d;
-  }
-
-  function sendChat() {
-    const txt = (chatInput.value || '').trim();
-    if (!txt) return;
-    appendMsg(txt, 'user');
-    chatInput.value = ''; 
-    chatInput.style.height = 'auto';
-    vsc.postMessage({ type: 'askBuddy', payload: txt });
-  }
-
-  if (sendBtn) sendBtn.addEventListener('click', sendChat);
-  if (chatInput) {
-    chatInput.addEventListener('keydown', e => { 
-      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChat(); } 
-    });
-    chatInput.addEventListener('input', () => { 
-      chatInput.style.height = 'auto'; 
-      chatInput.style.height = Math.min(chatInput.scrollHeight, 100) + 'px'; 
-    });
-  }
-
-  // ── Log ──
-  function updateTermFilter(logs) {
-    if (!logs) return;
-    const sel = document.getElementById('term-filter');
-    if (!sel) return;
-    const activeTerm = sel.value;
-    const terms = new Set();
-    logs.forEach(l => { if (l.terminalName) terms.add(l.terminalName); });
-    let h = '<option value="all">All Terms</option>';
-    Array.from(terms).sort().forEach(t => {
-      h += \\x60<option value="\${esc(t)}">\${esc(t)}</option>\\x60;
-    });
-    sel.innerHTML = h;
-    sel.value = activeTerm;
-  }
-
-  function renderLog(logs) {
-    if (!logs) return;
-    currentLogData = logs;
-    updateTermFilter(logs);
-    const list = document.getElementById('log-list');
-    const search = (document.getElementById('log-search')?.value || '').toLowerCase();
-    const termF = document.getElementById('term-filter')?.value || 'all';
-    const statF = document.getElementById('status-filter')?.value || 'all';
-
-    const filtered = logs.filter(e => {
-      const matchesSearch = e.cmd.toLowerCase().includes(search) || (e.projectName || '').toLowerCase().includes(search);
-      const matchesTerm = termF === 'all' || e.terminalName === termF;
-      const matchesStatus = statF === 'all' || (statF === 'err' && e.status === 'error') || (statF === 'warn' && e.status === 'warning') || (statF === 'ok' && e.status === 'ok');
-      return matchesSearch && matchesTerm && matchesStatus;
-    });
-
-    if (filtered.length === 0) {
-      list.innerHTML = '<div class="empty"><div class="empty-icon">🔍</div><div class="empty-text">No matching logs.</div></div>';
-      return;
-    }
-
-    list.innerHTML = filtered.reverse().map(e => {
-      const cls = e.status === 'ok' ? 'ok' : e.status === 'warning' ? 'warn' : 'err';
-      const icon = cls === 'ok' ? '✓' : cls === 'warn' ? '⚠' : '✗';
-      return \\x60
-        <div class="entry \${cls}" data-entry='\\x60 + esc(JSON.stringify(e)) + \\x60'>
-          <div class="entry-header">
-            <div class="entry-status-icon">\${icon}</div>
-            <div class="entry-summary">
-              <div class="entry-cmd-text">\${esc(e.cmd)}</div>
-              <div class="entry-sub">
-                <span>\${ago(e.timestamp)}</span>
-                <span>•</span>
-                <span>\${esc(e.terminalName || 'terminal')}</span>
-              </div>
-            </div>
-          </div>
-          <div class="entry-details">
-            <div class="entry-full-cmd">\${esc(e.cmd)}</div>
-            \${e.errorOutput ? '<div style="font-size:10px; color:var(--dim); margin-top:8px; opacity:0.7">Snippet: ' + esc(e.errorOutput.slice(0, 80)) + '...</div>' : ''}
-            <div class="entry-footer">
-              \${e.errorOutput ? '<button class="btn-sm focus ask-explain-btn">🤖 Ask Buddy</button>' : ''}
-            </div>
-          </div>
-        </div>\\x60;
-    }).join('');
-  }
-
-  document.getElementById('log-search')?.addEventListener('input', () => renderLog(currentLogData));
-  document.getElementById('term-filter')?.addEventListener('change', () => renderLog(currentLogData));
-  document.getElementById('status-filter')?.addEventListener('change', () => renderLog(currentLogData));
-  document.getElementById('filter-toggle-btn')?.addEventListener('click', () => {
-    document.getElementById('log-filters-box')?.classList.toggle('show');
-    document.getElementById('filter-toggle-btn')?.classList.toggle('active');
-  });
-
-  document.getElementById('log-list')?.addEventListener('click', e => {
-    const btn = e.target.closest('.ask-explain-btn');
-    if (btn) {
-      const entry = btn.closest('.entry');
-      if (entry) {
-        try {
-          const data = JSON.parse(entry.dataset.entry || '{}');
-          document.querySelector('[data-tab="chat"]')?.click();
-          vsc.postMessage({ type: 'explainEntry', payload: data });
-        } catch (err) {}
-      }
-      return;
-    }
-    const entry = e.target.closest('.entry');
-    if (entry) entry.classList.toggle('expanded');
-  });
-
-  // ── Live ──
-  function renderLive(cmds) {
-    const c = document.getElementById('live-list');
-    if (!c) return;
-    if (!cmds || !cmds.length) {
-      c.innerHTML = '<div class="empty"><div class="empty-icon">⚡</div><div class="empty-text">No active commands.</div></div>';
-      return;
-    }
-    c.innerHTML = cmds.map(cmd => \\x60<div class="live-entry">
-      <div class="live-info" style="display:flex;align-items:center;gap:10px">
-        <div class="spin"></div>
-        <div style="flex:1;min-width:0">
-          <div class="entry-cmd" style="font-family:var(--mono);font-size:11px">\${esc(cmd.cmd || 'Running…')}</div>
-          <div class="live-status" style="font-size:10px;color:var(--dim)">
-            <span>\${ago(cmd.startTime)}</span>
-            <span>•</span>
-            <span>PID: \${cmd.pid || '?'}</span>
-          </div>
-        </div>
-      </div>
-      <div class="live-btns" style="display:flex;gap:6px;margin-top:6px">
-        <button class="btn-sm kill live-kill-btn" data-id="\${cmd.terminalId}">⏹ End</button>&nbsp;
-        <button class="btn-sm focus live-focus-btn" data-id="\${cmd.terminalId}">👁 Focus</button>
-        \${cmd.port ? \\x60&nbsp;<button class="btn-sm link live-link-btn" data-url="http://localhost:\${cmd.port}">🚀 Link</button>\\x60 : ''}
-      </div>
-    </div>\\x60).join('');
-  }
-
-  document.getElementById('live-list')?.addEventListener('click', e => {
-    const btn = e.target.closest('.btn-sm');
-    if (!btn) return;
-    const id = btn.dataset.id;
-    if (btn.classList.contains('live-kill-btn')) vsc.postMessage({ type: 'killTerminal', payload: id });
-    if (btn.classList.contains('live-focus-btn')) vsc.postMessage({ type: 'focusTerminal', payload: id });
-    if (btn.classList.contains('live-link-btn')) vsc.postMessage({ type: 'openExternal', payload: btn.dataset.url });
-  });
-
-  // ── Ports ──
-  function renderPorts(ports) {
-    const c = document.getElementById('ports-list');
-    if (!c) return;
-    if (!ports || !ports.length) {
-      c.innerHTML = '<div class="empty"><div class="empty-icon">🔌</div><div class="empty-text">No dev servers detected.</div></div>';
-      return;
-    }
-    c.innerHTML = ports.map(p => \\x60
-      <div class="card" style="display:flex;align-items:center;gap:10px">
-        <div class="dot"></div>
-        <div style="flex:1">
-          <div style="font-size:12px;font-weight:600">:\${p.port}</div>
-          <div style="font-size:10px;color:var(--dim)">\${esc(p.label || 'Active')}</div>
-        </div>
-        \${p.pid ? \\x60<button class="kill-btn" data-port="\${p.port}" data-pid="\${p.pid}">Kill</button>\\x60 : ''}
-      </div>\\x60).join('');
-  }
-
-  document.getElementById('ports-list')?.addEventListener('click', e => {
-    const btn = e.target.closest('.kill-btn');
-    if (btn) vsc.postMessage({ type: 'killPort', payload: { port: +btn.dataset.port, pid: +btn.dataset.pid } });
-  });
-
-  // ── Git ──
-  function renderGit(payload) {
-    const c = document.getElementById('git-content');
-    if (!c) return;
-    if (!payload) {
-      c.innerHTML = '<div class="empty"><div class="empty-icon">🌿</div><div class="empty-text">No git repository detected.</div></div>';
-      return;
-    }
-    const existingTree = c.querySelector('.git-tree-container')?.innerHTML;
-    let h = \\x60<div class="branch-badge">🌿 \${esc(payload.branch || '?')}\\x60;
-    if (payload.aheadCount > 0) h += \\x60 · <span style="color:var(--ok)">↑\${payload.aheadCount}</span>\\x60;
-    if (payload.behindCount > 0) h += \\x60 · <span style="color:var(--warn)">↓\${payload.behindCount}</span>\\x60;
-    if (payload.uncommittedCount > 0) h += \\x60 · <span style="color:var(--warn)">\${payload.uncommittedCount} changed</span>\\x60;
-    h += '</div>';
-
-    function renderNode(node, depth = 0) {
-      if (!node) return '';
-      let html = '';
-      if (node.name !== 'root') {
-        const isFolder = node.children && node.children.length > 0;
-        if (isFolder) {
-          const folderStatus = node.status !== 'clean' ? \\x60status-\${node.status}\\x60 : '';
-          html += \\x60<div class="tree-node folder \${folderStatus}" style="margin-left:\${depth * 8}px">📁 \${esc(node.name)}</div>\\x60;
-        } else {
-          const stRaw = (node.status || '').trim().charAt(0).toUpperCase();
-          const stClass = stRaw === 'M' ? 'M' : stRaw === 'A' ? 'A' : stRaw === 'D' ? 'D' : '';
-          html += \\x60<div class="tree-node file" style="margin-left:\${depth * 8}px">
-            <div class="git-file">
-              <span class="git-s \${stClass}">\${esc(stRaw || ' ')}</span>
-              <span class="file-name" style="\${stClass ? \\x60color: var(--\${stClass === 'M' ? 'warn' : stClass === 'A' ? 'ok' : 'err'})\\x60 : ''}">\${esc(node.name)}</span>
-            </div>
-          </div>\\x60;
-        }
-      }
-      if (node.children) {
-        node.children.forEach(ch => html += renderNode(ch, node.name === 'root' ? 0 : depth + 1));
       }
       return html;
+    } catch (e) {
+      return esc(text);
     }
-
-    if (payload.tree) {
-      h += '<div class="git-tree-container" style="margin-bottom:12px; border-top:1px solid var(--border); padding-top:4px;">';
-      h += renderNode(payload.tree);
-      h += '</div>';
-    } else if (existingTree) {
-      h += '<div class="git-tree-container" style="margin-bottom:12px; border-top:1px solid var(--border); padding-top:4px;">' + existingTree + '</div>';
-    }
-    if (payload.lastCommitMessage) h += \\x60<div style="font-size:10px;color:var(--dim);margin-bottom:6px">Last: \${esc(payload.lastCommitMessage)} · \${esc(payload.lastCommitTime)}</div>\\x60;
-    if (payload.guide) h += \\x60<div class="git-tip">\${md(payload.guide)}</div>\\x60;
-    c.innerHTML = h;
   }
 
-  // ── Pkgs ──
-  function renderPkgs(list) {
-    const c = document.getElementById('pkgs-list');
-    if (!c) return;
-    if (!list || !list.length) {
-      c.innerHTML = '<div class="empty"><div class="empty-icon">📦</div><div class="empty-text">No scripts found.</div></div>';
+  function applyFilters() {
+    var query = (document.getElementById('log-search').value || '').toLowerCase();
+    var termId = document.getElementById('term-filter').value;
+    var status = document.getElementById('status-filter').value;
+    var project = document.getElementById('project-filter').value;
+    var sort = document.getElementById('sort-filter').value;
+    
+    var filtered = allLogs.filter(function(l) {
+      var matchQuery = !query || l.cmd.toLowerCase().indexOf(query) !== -1;
+      var matchTerm = termId === 'all' || l.terminalId === termId;
+      var matchStatus = status === 'all' || l.status === status;
+      var matchProject = project === 'all' || l.project === project;
+      return matchQuery && matchTerm && matchStatus && matchProject;
+    });
+
+    filtered.sort(function(a, b) {
+      var ta = a.timestamp || 0;
+      var tb = b.timestamp || 0;
+      return sort === 'asc' ? ta - tb : tb - ta;
+    });
+
+    renderLog(filtered, true);
+  }
+
+  function addChatMsg(content, role) {
+    var container = document.getElementById('chat-msgs');
+    if (!container) return null;
+    var div = document.createElement('div');
+    div.className = 'msg ' + role;
+    div.innerHTML = (role.indexOf('thinking') !== -1) ? '<span class="thinking-dots">' + esc(content) + '</span>' : content;
+    container.appendChild(div);
+    container.scrollTop = container.scrollHeight;
+    return div;
+  }
+
+  function handleStreamChunk(chunk) {
+    if (!streamEl) {
+      var thinking = document.querySelector('#chat-msgs .msg.thinking');
+      if (thinking) { thinking.parentNode.removeChild(thinking); }
+      streamEl = addChatMsg('', 'buddy');
+    }
+    var raw = (streamEl.getAttribute('data-raw') || '') + chunk;
+    streamEl.setAttribute('data-raw', raw);
+    streamEl.innerHTML = parseMd(raw);
+    var c = document.getElementById('chat-msgs');
+    if (c) { c.scrollTop = c.scrollHeight; }
+  }
+
+  function finalizeStream() {
+    if (streamEl) {
+      streamEl.innerHTML = parseMd(streamEl.getAttribute('data-raw') || '');
+      streamEl = null;
+    }
+  }
+
+  function updatePet(s) {
+    var emoji = document.getElementById('pet-emoji');
+    var mood = document.getElementById('pet-mood');
+    var lv = document.getElementById('pet-lv');
+    var fill = document.getElementById('xp-fill');
+    var name = document.getElementById('pet-name');
+    if (emoji && s) {
+      var typeMap = PET_MAP[s.type] || PET_MAP.cat;
+      emoji.textContent = typeMap[s.mood] || typeMap.neutral || '🐱';
+    }
+    if (mood && s) { mood.textContent = s.mood || 'ready'; }
+    if (lv && s) { lv.textContent = 'Lv.' + (s.level || 1); }
+    if (name && s) { name.textContent = s.name || 'Buddy'; }
+    if (fill && s) { fill.style.width = (s.xp % 100) + '%'; }
+  }
+
+  function renderLog(logs, isFilter) {
+    var list = document.getElementById('log-list');
+    if (!list) return;
+    if (!logs || !logs.length) {
+      list.innerHTML = '<div class="empty">' + (isFilter ? 'No matching logs.' : 'No commands yet.') + '</div>';
       return;
     }
-    const groups = {};
-    list.forEach(i => { const g = i.group || 'Other'; if (!groups[g]) groups[g] = []; groups[g].push(i); });
-    const typeIcon = { npm: '📦', python: '🐍', script: '⚙️', binary: '🐳', go: '🐹' };
-    let h = '';
-    Object.keys(groups).sort((a, b) => a === 'Root' ? -1 : b === 'Root' ? 1 : a.localeCompare(b)).forEach(g => {
-      h += \\x60<div class="pkg-header">\${esc(g)}</div>\\x60;
-      groups[g].forEach(item => {
-        h += \\x60<div class="card"><div class="pkg-row"><span class="pkg-name" title="\${esc(item.command)}">\${esc(item.name)}</span><span class="pkg-type">\${typeIcon[item.type] || '▶'}</span><button class="run-btn" data-cmd="\${esc(item.command)}" data-path="\${esc(item.path)}">▶ Run</button></div></div>\\x60;
-      });
-    });
-    c.innerHTML = h;
+    var html = '';
+    for (var i = 0; i < logs.length; i++) {
+        var l = logs[i];
+        var cls = l.status === 'error' ? 'err' : 'ok';
+        var json = JSON.stringify(l).replace(/'/g, "&#39;").replace(/"/g, "&quot;");
+        html += '<div class="log-entry ' + cls + '" onclick=\\\'vscPost("explainEntry", ' + json + ')\\\'><div class="log-cmd">' + esc(l.cmd) + '</div></div>';
+    }
+    list.innerHTML = html;
   }
 
-  document.getElementById('pkgs-list')?.addEventListener('click', e => {
-    const btn = e.target.closest('.run-btn');
-    if (btn) vsc.postMessage({ type: 'runExecutable', payload: { command: btn.dataset.cmd, path: btn.dataset.path, name: btn.dataset.cmd } });
-  });
+  function renderLive(commands) {
+    var list = document.getElementById('live-list');
+    if (!list || !commands) return;
+    var html = '';
+    for (var i = 0; i < commands.length; i++) {
+        var c = commands[i];
+        html += '<div class="live-entry"><div class="entry-cmd-text">' + esc(c.cmd || c.name || '') + '</div>' +
+          '<div class="entry-sub"><span>' + esc(c.terminalName || '') + '</span></div></div>';
+    }
+    list.innerHTML = html || '<div class="empty">No active commands.</div>';
+  }
 
-  // ── AI ──
-  function updateAiInfo(info) {
-    const b = document.getElementById('ai-badge');
-    if (!b || !info) return;
-    const txt = \\x60\${(info.provider || 'AI').toUpperCase()} · \${info.model || ''}\\x60;
-    b.textContent = txt.length > 22 ? txt.slice(0, 19) + '…' : txt;
-    b.title = txt;
+  function renderPorts(ports) {
+    var list = document.getElementById('ports-list');
+    if (!list || !ports) return;
+    var html = '';
+    for (var i = 0; i < ports.length; i++) {
+        var p = ports[i];
+        html += '<div class="card"><div class="pkg-row"><div><div class="pkg-name">:' + esc(p.port) + ' - ' + esc(p.label || p.name || '') + '</div></div>' +
+          '<button class="kill-btn" onclick=\\\'vscPost("killPort", {port:' + p.port + ',pid:' + (p.pid || 0) + '})\\\'>Kill</button>' +
+          '</div></div>';
+    }
+    list.innerHTML = html || '<div class="empty">No dev servers.</div>';
+  }
+
+  function renderGitTree(data) {
+    var container = document.getElementById('git-content');
+    if (!container || !data) return;
+    var html = '<div class="branch-badge">🌿 ' + esc(data.branch || 'unknown') + '</div>';
+    if (data.guide) { html += '<div class="git-tip">' + esc(data.guide) + '</div>'; }
+    container.innerHTML = html;
+  }
+
+  function renderPkgs(list) {
+    var container = document.getElementById('pkgs-list');
+    if (!container || !list) return;
+    
+    var groups = {};
+    for (var i = 0; i < list.length; i++) {
+      var pkg = list[i];
+      var dir = pkg.path || 'Root';
+      if (!groups[dir]) groups[dir] = [];
+      groups[dir].push(pkg);
+    }
+
+    var html = '';
+    var keys = Object.keys(groups);
+    keys.sort();
+    for (var k = 0; k < keys.length; k++) {
+      var dirName = keys[k];
+      var pkgs = groups[dirName];
+      html += '<div class="pkg-group"><div class="pkg-group-header">' + esc(dirName) + '</div>';
+      for (var j = 0; j < pkgs.length; j++) {
+        var p = pkgs[j];
+        var json = JSON.stringify(p).replace(/'/g, "&#39;").replace(/"/g, "&quot;");
+        html += '<div class="card pkg-row"><div><div class="pkg-name">' + esc(p.name) + '</div><div class="pkg-type">' + esc(p.type || '') + '</div></div>' +
+          '<button class="run-btn btn-sm" onclick=\\\'vscPost("runExecutable",' + json + ')\\\'>Run</button></div>';
+      }
+      html += '</div>';
+    }
+    container.innerHTML = html || '<div class="empty">No scripts.</div>';
   }
 
   function renderExplanation(ex) {
     if (!ex) return;
-    const el = document.getElementById("ai-expl");
-    if (el) {
-      el.innerHTML = \\x60<div class="explain-card">
-        <div class="ec-label">Analysis</div>
-        <div>\${md(ex.summary || '')}</div>
-        \${ex.fix ? \\x60<div class="ec-fix"><strong>Fix:</strong> \${md(ex.fix)}</div>\\x60 : ""}
-      </div>\\x60;
-      el.style.display = "block";
-      el.scrollIntoView({ behavior: "smooth" });
+    var container = document.getElementById('ai-expl');
+    if (!container) return;
+    container.style.display = 'block';
+    
+    var activeTab = document.querySelector('.tab.active');
+    if (activeTab && activeTab.getAttribute('data-tab') !== 'chat') {
+       var chatTab = document.querySelector('.tab[data-tab="chat"]');
+       if (chatTab) chatTab.click();
     }
-  }
 
-  document.getElementById('chat-msgs')?.addEventListener('click', e => {
-    const rb = e.target.closest('.run-cmd-btn');
-    if (rb) vsc.postMessage({ type: 'runCommand', payload: rb.dataset.cmd });
-    const lb = e.target.closest('.chat-live-btn');
-    if (lb) {
-      const id = lb.dataset.id;
-      const url = lb.dataset.url;
-      if (lb.classList.contains('chat-live-focus')) vsc.postMessage({ type: 'focusTerminal', payload: id });
-      else if (lb.classList.contains('chat-live-kill')) vsc.postMessage({ type: 'killTerminal', payload: id });
-      else if (lb.classList.contains('chat-live-link')) vsc.postMessage({ type: 'openExternal', payload: url });
-    }
-  });
-
-  // ── Explorer ──
-  function renderExplorer(tree) {
-    const c = document.getElementById('explorer-tree');
-    if (!c) return;
-    if (!tree || !tree.length) {
-      c.innerHTML = '<div class="empty"><div class="empty-icon">📁</div><div class="empty-text">Empty workspace.</div></div>';
-      return;
-    }
-    function buildNode(n, depth = 0) {
-      const isDir = n.type === 'directory';
-      const icon = isDir ? '📁' : '📄';
-      let h = \\x60<div class="tree-item \${isDir ? 'folder' : 'file'}" style="padding-left: \${depth * 12}px" data-path="\${esc(n.path)}">
-        <span class="item-icon">\${icon}</span>
-        <span class="item-name">\${esc(n.name)}</span>
-      </div>\\x60;
-      if (isDir && n.children) {
-        n.children.sort((a, b) => (a.type === b.type) ? a.name.localeCompare(b.name) : (a.type === 'directory' ? -1 : 1))
-          .forEach(ch => h += buildNode(ch, depth + 1));
+    var html = '<div class="explain-card card">';
+    if (ex.summary) html += '<div class="ec-label">Summary</div><div>' + esc(ex.summary) + '</div>';
+    if (ex.cause) html += '<div class="ec-label" style="margin-top:8px">Cause</div><div>' + esc(ex.cause) + '</div>';
+    if (ex.fix) html += '<div class="ec-fix"><div class="ec-label">Fix</div><div>' + esc(ex.fix) + '</div></div>';
+    if (ex.suggestedCommands && ex.suggestedCommands.length) {
+      html += '<div style="margin-top:8px">';
+      for (var i = 0; i < ex.suggestedCommands.length; i++) {
+        var cmd = ex.suggestedCommands[i];
+        html += '<button class="sug-btn" onclick=\\\'vscPost("runCommand","' + esc(cmd) + '")\\\'>' + esc(cmd) + '</button>';
       }
-      return h;
+      html += '</div>';
     }
-    c.innerHTML = tree.map(n => buildNode(n)).join('');
+    html += '</div>';
+    container.innerHTML = html;
+    if (typeof container.scrollIntoView === "function") {
+       container.scrollIntoView({ behavior: "smooth" });
+    }
   }
 
-  document.getElementById('explorer-tree')?.addEventListener('click', e => {
-    const item = e.target.closest('.tree-item');
-    if (item) vsc.postMessage({ type: 'openFile', payload: item.dataset.path });
-  });
-
-  document.getElementById('ai-mover-input')?.addEventListener('input', e => {
-    const query = e.target.value.trim().toLowerCase();
-    if (query.startsWith('go ') || query.startsWith('cd ')) return;
-    const items = document.querySelectorAll('.tree-item');
-    items.forEach(item => {
-      const name = item.querySelector('.item-name')?.textContent?.toLowerCase() || '';
-      item.classList.toggle('hidden', query !== '' && !name.includes(query));
-    });
-  });
-
-  document.getElementById('ai-mover-input')?.addEventListener('keydown', e => {
-    if (e.key === 'Enter') {
-      const query = e.target.value.trim();
-      if (!query) return;
-      if (query.startsWith('go ') || query.startsWith('cd ') || query.includes(' to ')) {
-        vsc.postMessage({ type: 'aiMoveDirectory', payload: query });
-        e.target.value = '';
-        e.target.placeholder = 'Moving...';
+  function renderExplorer(map) {
+    var container = document.getElementById('explorer-tree');
+    if (!container || !map || !map.projects) return;
+    var html = '';
+    for (var i = 0; i < map.projects.length; i++) {
+      var proj = map.projects[i];
+      html += '<div class="tree-node folder" onclick=\\\'vscPost("openFile","' + esc(proj.path || '') + '")\\\'>📁 ' + esc(proj.name) + '</div>';
+      var files = proj.topLevelFiles || [];
+      for (var j = 0; j < Math.min(files.length, 10); j++) {
+        html += '<div class="tree-node file" style="padding-left:18px" onclick=\\\'vscPost("openFile","' + esc(files[j]) + '")\\\'>📄 ' + esc(files[j].split(/[\\\\\\\\/]/).pop() || files[j]) + '</div>';
       }
     }
-  });
-
-  // ── Terminal Selector ──
-  function renderTerminalSelector(data) {
-    const list = document.getElementById('terminal-selector');
-    if (!list) return;
-    terminalsMap = {};
-    data.forEach(t => terminalsMap[t.id] = t);
-    list.innerHTML = data.map(t => \\x60
-      <div class="terminal-card \${t.active ? 'active' : ''}">
-        <div class="term-header">
-          <div class="term-name">\${esc(t.name)}</div>
-          <div class="term-status \${t.isExecuting ? 'executing' : ''}"></div>
-        </div>
-        <div class="term-purpose">\${esc(t.purpose)}</div>
-        \${t.port ? \\x60<a href="http://localhost:\${t.port}" style="font-size:10px; color:var(--accent); display:block; margin:4px 0;">🚀 Open http://localhost:\${t.port}</a>\\x60 : ''}
-        <div class="term-actions" style="display:flex;gap:6px;margin-top:6px">
-          <button class="btn-sm focus term-focus-btn" data-id="\${t.id}">👁 Focus</button>&nbsp;
-          <button class="btn-sm kill term-kill-btn" data-id="\${t.id}">⏹ Kill</button>
-        </div>
-      </div>\\x60).join('');
+    container.innerHTML = html || '<div class="empty">No projects.</div>';
   }
 
-  document.getElementById('terminal-selector')?.addEventListener('click', e => {
-    const btn = e.target.closest('.btn-sm');
-    if (!btn) return;
-    const id = btn.dataset.id;
-    if (btn.classList.contains('term-focus-btn')) vsc.postMessage({ type: 'focusTerminal', payload: id });
-    if (btn.classList.contains('term-kill-btn')) vsc.postMessage({ type: 'killTerminal', payload: id });
-  });
+  function updateTerminals(list) {
+    terminals = list || [];
+    var sel = document.getElementById('terminal-selector');
+    var filterSel = document.getElementById('term-filter');
+    if (!sel) return;
+    var html = '';
+    var optHtml = '<option value="all">All Terminals</option>';
+    for (var i = 0; i < terminals.length; i++) {
+        var t = terminals[i];
+        html += '<div class="terminal-card"><div class="term-header"><div class="term-name">' + esc(t.name) + '</div>' +
+          '<div class="term-status' + (t.isExecuting ? ' executing' : '') + '"></div></div>' +
+          '<div class="term-actions"><button class="ask-btn" onclick=\\\'vscPost("focusTerminal","' + esc(t.id) + '")\\\'>Focus</button>' +
+          '<button class="kill-btn" style="font-size:10px;padding:2px 8px" onclick=\\\'vscPost("killTerminal","' + esc(t.id) + '")\\\'>Kill</button></div></div>';
+        optHtml += '<option value="' + esc(t.id) + '">' + esc(t.name) + '</option>';
+    }
+    sel.innerHTML = html;
+    if (filterSel) filterSel.innerHTML = optHtml;
+  }
 
-  // ── Stats ──
+  function populateProjectFilter(logs) {
+    var sel = document.getElementById('project-filter');
+    if (!sel) return;
+    var projects = {};
+    for (var i = 0; i < logs.length; i++) {
+        var pName = logs[i].project;
+        if (pName) projects[pName] = true;
+    }
+    var html = '<option value="all">All Projects</option>';
+    var keys = Object.keys(projects).sort();
+    for (var j = 0; j < keys.length; j++) {
+        html += '<option value="' + esc(keys[j]) + '">' + esc(keys[j]) + '</option>';
+    }
+    // Only update if options changed to preserve selection if possible
+    var currentVal = sel.value;
+    sel.innerHTML = html;
+    sel.value = currentVal || 'all';
+  }
+
   function updateStats(s) {
-    const ok = document.getElementById('st-ok');
-    const err = document.getElementById('st-err');
-    const tot = document.getElementById('st-total');
-    if (ok) ok.querySelector('.st-val').textContent = s.ok || 0;
-    if (err) err.querySelector('.st-val').textContent = s.error || 0;
-    if (tot) tot.querySelector('.st-val').textContent = s.total || 0;
+    var tok = document.querySelector('#st-ok .st-val');
+    var terr = document.querySelector('#st-err .st-val');
+    var tall = document.querySelector('#st-total .st-val');
+    if (tok) tok.textContent = s.ok || 0;
+    if (terr) terr.textContent = s.err || 0;
+    if (tall) tall.textContent = s.total || 0;
   }
 
-  // ── Message Router ──
-  let hatched = false;
-  window.addEventListener('message', evt => {
-    const msg = evt.data; if (!msg || !msg.type) return;
-    if (!hatched) {
-      hatched = true;
-      const em = document.getElementById('pet-emoji');
-      const mo = document.getElementById('pet-mood');
-      if (em && (em.textContent === '🥚' || em.textContent === 'Hatching...')) em.textContent = '🐱';
-      if (mo && mo.textContent.toLowerCase().includes('hatch')) mo.textContent = 'ready';
+  function updateAiInfo(info) {
+    var badge = document.getElementById('ai-badge');
+    if (badge) { badge.textContent = (info.provider || 'AI').toUpperCase() + ' - ' + (info.model || ''); }
+  }
+
+  function showWarning(txt) {
+    var bar = document.getElementById('warn-bar');
+    if (bar) {
+      bar.textContent = txt;
+      bar.style.display = 'block';
+      setTimeout(function() { bar.style.display = 'none'; }, 4000);
     }
-    try {
-      switch (msg.type) {
-        case 'updateLog': renderLog(msg.payload); break;
-        case 'updatePetState': updatePet(msg.payload); break;
-        case 'updateActiveCommands': renderLive(msg.payload); break;
-        case 'updatePorts': renderPorts(msg.payload); break;
-        case 'updateGitStatus': renderGit(msg.payload); break;
-        case 'updateTerminalSelector': renderTerminalSelector(msg.payload); break;
-        case 'updateGitTree': renderGit(msg.payload); break;
-        case 'updateExecutables': renderPkgs(msg.payload); break;
-        case 'updateStats': updateStats(msg.payload); break;
-        case 'updateAiInfo': updateAiInfo(msg.payload); break;
-        case 'updateWorkspaceMap': if (msg.payload.fileTree) renderExplorer([msg.payload.fileTree]); break;
-        case 'aiThinking': streamEl = appendMsg('…', 'buddy thinking'); break;
-        case 'aiStreamChunk':
-          if (!streamEl) streamEl = appendMsg('', 'buddy');
-          if (streamEl.classList.contains('thinking')) {
-            streamEl.classList.remove('thinking');
-            streamEl.dataset.raw = '';
-            streamEl.innerHTML = '';
-          }
-          streamEl.dataset.raw = (streamEl.dataset.raw || '') + (msg.payload || '');
-          streamEl.innerHTML = md(streamEl.dataset.raw);
-          chatMsgs.scrollTop = chatMsgs.scrollHeight; break;
-        case 'aiStreamDone':
-          if (streamEl) { streamEl.classList.remove('thinking'); streamEl.innerHTML = md(streamEl.dataset.raw || ''); }
-          streamEl = null; break;
-        case 'aiExplanation': renderExplanation(msg.payload); break;
-        case 'warning': {
-          const wb = document.getElementById('warn-bar');
-          if (wb) { wb.textContent = msg.payload; wb.style.display = 'block'; setTimeout(() => wb.style.display = 'none', 5000); }
-          break;
-        }
-        case 'safetyAlert': {
-          const ov = document.getElementById('safety-overlay');
-          const sm = document.getElementById('safety-msg');
-          const sc = document.getElementById('safety-cmd-preview');
-          if (ov && sm && sc) {
-            pendingCmd = msg.payload.cmd;
-            sm.textContent = msg.payload.alert?.explanation || 'Safety risk detected.';
-            sc.textContent = msg.payload.cmd;
-            ov.classList.add('show');
-          } break;
+  }
+
+  function showSafety(data) {
+    var overlay = document.getElementById('safety-overlay');
+    if (overlay) {
+      pendingCmd = data.cmd;
+      var msg = document.getElementById('safety-msg');
+      var preview = document.getElementById('safety-cmd-preview');
+      if (msg) msg.textContent = (data.alert && data.alert.explanation) ? data.alert.explanation : 'Safety alert.';
+      if (preview) preview.textContent = data.cmd;
+      overlay.className += ' show';
+    }
+  }
+
+  window.vscPost = function(type, payload) { vsc.postMessage({ type: type, payload: payload }); };
+
+  var tabEls = document.querySelectorAll('.tab');
+  for (var i = 0; i < tabEls.length; i++) {
+    (function(idx) {
+        tabEls[idx].addEventListener('click', function() {
+          var target = this.getAttribute('data-tab');
+          var allTabs = document.querySelectorAll('.tab');
+          for (var j = 0; j < allTabs.length; j++) { allTabs[j].className = allTabs[j].className.replace(' active', ''); }
+          var allPanels = document.querySelectorAll('.panel');
+          for (var k = 0; k < allPanels.length; k++) { allPanels[k].className = allPanels[k].className.replace(' active', ''); }
+          this.className += ' active';
+          var p = document.getElementById('panel-' + target);
+          if (p) p.className += ' active';
+        });
+    })(i);
+  }
+
+  // Filter Toggle
+  var filterBtn = document.getElementById('filter-toggle-btn');
+  if (filterBtn) {
+    filterBtn.addEventListener('click', function() {
+      var box = document.getElementById('log-filters-box');
+      if (box) {
+        if (box.className.indexOf('active') !== -1) {
+          box.className = box.className.replace(' active', '');
+        } else {
+          box.className += ' active';
         }
       }
-    } catch (e) { console.error('Buddy Webview Error:', e); }
-  });
+    });
+  }
 
-  // ── Safety Buttons ──
-  document.getElementById('s-cancel')?.addEventListener('click', () => { document.getElementById('safety-overlay')?.classList.remove('show'); pendingCmd = null; });
-  document.getElementById('s-run')?.addEventListener('click', () => { if (pendingCmd) vsc.postMessage({ type: 'runCommand', payload: pendingCmd }); document.getElementById('safety-overlay')?.classList.remove('show'); pendingCmd = null; });
+  // Log Search & Select Filters
+  var logSearch = document.getElementById('log-search');
+  if (logSearch) logSearch.addEventListener('input', applyFilters);
+  var termFil = document.getElementById('term-filter');
+  if (termFil) termFil.addEventListener('change', applyFilters);
+  var statFil = document.getElementById('status-filter');
+  if (statFil) statFil.addEventListener('change', applyFilters);
+  var projectFil = document.getElementById('project-filter');
+  if (projectFil) projectFil.addEventListener('change', applyFilters);
+  var sortFil = document.getElementById('sort-filter');
+  if (sortFil) sortFil.addEventListener('change', applyFilters);
 
-  // ── Handshake ──
-  vsc.postMessage({ type: 'ready' });
+  var sendBtn = document.getElementById('send-btn');
+  var inputEl = document.getElementById('chat-input');
+  function doSend() {
+    var v = (inputEl.value || '').trim();
+    if (!v) return;
+    addChatMsg(esc(v), 'user');
+    vsc.postMessage({ type: 'askBuddy', payload: v });
+    inputEl.value = '';
+  }
+  if (sendBtn) sendBtn.addEventListener('click', doSend);
+  if (inputEl) inputEl.addEventListener('keydown', function(e) { if (e.keyCode === 13 && !e.shiftKey) { e.preventDefault(); doSend(); } });
+
+  setTimeout(function() { vsc.postMessage({ type: 'ready' }); }, 150);
 })();
 `;
