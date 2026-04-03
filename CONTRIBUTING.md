@@ -18,7 +18,34 @@ First off, thank you for considering contributing to Terminal Buddy! It's people
 3.  **Install dependencies**: `npm install`.
 4.  **Create a branch**: Use a descriptive name like `feat-new-mascot` or `fix-terminal-flicker`.
 5.  **Make your changes**.
-6.  **Run tests**: Always run `npm test` before submitting. PRs that break the build will not be merged.
+6.  **Run tests**: Always- Ensure `npm run verify` passes locally before submitting.
+
+---
+
+## 📦 Release Workflow
+
+We use automated GitHub Releases to distribute the extension. To trigger a new release:
+
+1.  **Update Version**: Update the version in `package.json`.
+2.  **Tag & Push**:
+    ```bash
+    git tag v1.0.0
+    git push origin v1.0.0
+    ```
+    GitHub Actions will automatically build, package, and publish the `.vsix` as a release asset.
+
+---
+
+## 🛡️ Security & Branch Protection
+
+To maintain code quality and security:
+
+1.  **Main Branch Protection**: The `main` branch is configured to require all status checks to pass before merging.
+2.  **Required Checks**: 
+    - `CI` (Build, Lint, Tests)
+    - `CodeQL` (Security Analysis)
+3.  **No Direct Pushes**: All changes should come via Pull Requests.
+ break the build will not be merged.
 7.  **Submit a Pull Request**: Use our [PR Template](.github/PULL_REQUEST_TEMPLATE.md) for faster review.
 
 ## Code Style & Standards
