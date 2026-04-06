@@ -1,430 +1,468 @@
-export const PANEL_JS = `(function() {
-  'use strict';
-  console.log('[Terminal Buddy] Webview script heartbeat.');
+export const PANEL_JS = `
+(function() {
+  console.log('[Terminal Buddy] Script Initializing...');
   var vsc = acquireVsCodeApi();
   var hatched = false;
-  var allLogs = [];
+  var streamEl = null;
 
-  var PET_MAP = {
-    cat: { happy: '😸', neutral: '🐱', tired: '😿', worried: '🙀', excited: '😽', scared: '🙀', sleeping: '😴' },
-    dog: { happy: '🐶', neutral: '🐕', tired: '🦮', worried: '🐕‍🦺', excited: '🐕', scared: '🐕', sleeping: '💤' },
-    robot: { happy: '🤖', neutral: '🤖', tired: '🔌', worried: '📉', excited: '🚀', scared: '⚠️', sleeping: '💤' },
-    ghost: { happy: '👻', neutral: '👻', tired: '🌫️', worried: '😨', excited: '✨', scared: '😱', sleeping: '💤' }
-  };
+  function safeSet(id, html) {
+    var el = document.getElementById(id);
+    if (el) el.innerHTML = html;
+  }
 
-  window.addEventListener('message', function(event) {
-    var msg = event.data;
-    if (!msg || !msg.type) { return; }
+  function esc(s) {
+    if (!s) return '';
+    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
+  }
 
-    if (!hatched) {
-      hatched = true;
-      var emojiEl = document.getElementById('pet-emoji');
-      var moodEl = document.getElementById('pet-mood');
-      if (emojiEl && (emojiEl.textContent.trim() === '🥚' || emojiEl.textContent.trim() === 'Hatching...')) {
-         emojiEl.textContent = '🐱';
-      }
-      if (moodEl && (moodEl.textContent.trim() === 'Hatching...' || moodEl.textContent.trim() === 'Waiting...')) {
-         moodEl.textContent = 'ready';
-      }
+  function doHatch() {
+    if (hatched) return;
+    hatched = true;
+    console.log('[Terminal Buddy] Hatching Pet...');
+    var emo = document.getElementById('pet-emoji');
+    var mod = document.getElementById('pet-mood');
+    if (emo && (emo.textContent === '🥚' || !emo.textContent)) emo.textContent = '🐱';
+    if (mod && (mod.textContent === 'Hatching...' || !mod.textContent)) mod.textContent = 'Ready';
+  }
+
+  setTimeout(doHatch, 2000);
+
+  window.addEventListener('message', function(e) {
+    var msg = e.data;
+    if (!msg || !msg.type) return;
+    console.log('[Terminal Buddy] Received:', msg.type);
+
+    if (!hatched && (msg.type === 'init' || msg.type === 'updatePetState' || msg.type === 'updateLog' || msg.type === 'updateConfig')) {
+      doHatch();
     }
 
     try {
       switch (msg.type) {
-        case 'init': break;
-        case 'updateLog': 
-          allLogs = msg.payload || [];
-          populateProjectFilter(allLogs);
-          applyFilters();
-          break;
-        case 'updatePetState': updatePet(msg.payload); break;
+        case 'updateConfig': updateSettingsUI(msg.payload); break;
+        case 'updateLog': renderLog(msg.payload || []); break;
+        case 'updatePetState': updatePetUI(msg.payload); break;
         case 'updateActiveCommands': renderLive(msg.payload); break;
-        case 'updatePorts': renderPorts(msg.payload); break;
-        case 'updateGitStatus': break;
-        case 'updateGitTree': renderGitTree(msg.payload); break;
-        case 'updateTerminalSelector': updateTerminals(msg.payload); break;
-        case 'updateExecutables': renderPkgs(msg.payload); break;
-        case 'updateStats': updateStats(msg.payload); break;
-        case 'updateAiInfo': updateAiInfo(msg.payload); break;
+        case 'updatePorts': renderPorts(msg.payload || []); break;
+        case 'updateGitTree': renderGit(msg.payload); break;
+        case 'updateTerminalSelector': updateTerminals(msg.payload || []); break;
+        case 'updateExecutables': renderPkgs(msg.payload || []); break;
+        case 'updateAiInfo': updateAiStatus(msg.payload); break;
         case 'updateWorkspaceMap': renderExplorer(msg.payload); break;
-        case 'aiThinking': addChatMsg('Thinking...', 'buddy thinking'); break;
-        case 'aiStreamChunk': handleStreamChunk(msg.payload); break;
+        case 'updateUsage': renderUsage(msg.payload); break;
+        case 'updateVault': renderVault(msg.payload || []); break;
+        case 'aiThinking': showThinking(); break;
+        case 'aiStreamChunk': handleStream(msg.payload); break;
         case 'aiStreamDone': finalizeStream(); break;
-        case 'aiExplanation': renderExplanation(msg.payload); break;
-        case 'warning': showWarning(msg.payload); break;
-        case 'safetyAlert': showSafety(msg.payload); break;
+        case 'warning': showWarn(msg.payload); break;
       }
-    } catch (err) {
-      console.error('[Terminal Buddy] Webview error:', err);
+    } catch (err) { console.error('[Terminal Buddy] Router Error:', err); }
+  });
+
+  function vscAction(type, id, extra) {
+    vsc.postMessage({ type: type, payload: id, extra: extra });
+  }
+
+  // ─── Event Listeners ───────────────────────────────────────────────────
+
+  document.addEventListener('click', function(e) {
+    var t = e.target;
+    while (t && t !== document.body) {
+      var act = t.getAttribute('data-action');
+      if (act) {
+        if (act === 'tab') {
+          switchTab(t);
+        } else if (act === 'selectProvider') {
+          var pid = t.getAttribute('data-id');
+          vsc.postMessage({ type: 'updateSetting', payload: { key: 'aiProvider', value: pid } });
+        } else {
+          vscAction(act, t.getAttribute('data-id'), t.getAttribute('data-extra'));
+        }
+        e.stopPropagation();
+        return;
+      }
+      t = t.parentNode;
     }
   });
 
-  var streamEl = null;
-  var pendingCmd = null;
-  var terminals = [];
-
-  function esc(s) {
-    if (!s) return '';
-    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  function switchTab(el) {
+    var tab = el.getAttribute('data-tab');
+    document.querySelectorAll('.tab').forEach(function(t) { t.classList.remove('active'); });
+    document.querySelectorAll('.panel').forEach(function(p) { p.classList.remove('active'); });
+    el.classList.add('active');
+    var p = document.getElementById('panel-' + tab);
+    if (p) p.classList.add('active');
+    if (tab === 'usage') vsc.postMessage({ type: 'getUsage' });
+    if (tab === 'vault') vsc.postMessage({ type: 'getVault' });
   }
 
-  function parseMd(text) {
-    if (!text) return '';
-    try {
-      var TICK = String.fromCharCode(96);
-      var FENCE = TICK + TICK + TICK;
-      var parts = text.split(FENCE);
-      var html = '';
-      for (var i = 0; i < parts.length; i++) {
-        if (i % 2 === 1) {
-          var content = parts[i].replace(/^[a-z]*\\n/, '');
-          html += '<pre><code>' + esc(content.trim()) + '</code></pre>';
-        } else {
-          var segment = esc(parts[i]);
-          segment = segment.replace(/\\*\\*([^*]+)\\*\\*/g, '<strong>$1</strong>');
-          segment = segment.replace(new RegExp(TICK + '([^' + TICK + ']+)' + TICK, 'g'), '<code>$1</code>');
-          segment = segment.replace(/\\[LIVE:([^\\]]+)\\]/g, function(match, id) {
-            var found = null;
-            for (var j = 0; j < terminals.length; j++) {
-              if (terminals[j].id === id) { found = terminals[j]; break; }
-            }
-            return '<button class="chat-live-token" data-id="' + esc(id) + '">📺 ' + esc(found ? found.name : id) + '</button>';
-          });
-          html += segment.replace(/\\n/g, '<br>');
+  // Settings Interaction
+  document.querySelectorAll('input[type="checkbox"]').forEach(function(cb) {
+    cb.addEventListener('change', function() {
+      var key = cb.id.replace('setting-', '');
+      vsc.postMessage({ type: 'updateSetting', payload: { key: key, value: cb.checked } });
+    });
+  });
+
+  document.querySelectorAll('input[type="text"], input[type="password"], select').forEach(function(inp) {
+    inp.addEventListener('change', function() {
+      if (inp.classList.contains('p-key')) {
+        var prov = inp.getAttribute('data-provider');
+        var val = inp.value.trim();
+        if (val) vsc.postMessage({ type: 'updateProviderKey', payload: { provider: prov, key: val } });
+      } else if (inp.id.startsWith('setting-')) {
+        var key = inp.id.replace('setting-', '');
+        var val = inp.value.trim();
+        // Safeguard: Don't allow API keys in the endpoint field
+        if (key === 'endpoint' && (val.startsWith('gsk_') || val.startsWith('sk-'))) {
+           showWarn('Invalid Endpoint: Do not paste API keys here!');
+           inp.value = '';
+           return;
         }
+        vsc.postMessage({ type: 'updateSetting', payload: { key: key, value: val } });
       }
-      return html;
-    } catch (e) {
-      return esc(text);
-    }
-  }
+    });
+  });
 
-  function applyFilters() {
-    var query = (document.getElementById('log-search').value || '').toLowerCase();
-    var termId = document.getElementById('term-filter').value;
-    var status = document.getElementById('status-filter').value;
-    var project = document.getElementById('project-filter').value;
-    var sort = document.getElementById('sort-filter').value;
+  // Auto-detect keys on paste
+  document.addEventListener('paste', function(e) {
+    var text = (e.clipboardData || window.clipboardData).getData('text').trim();
+    var detected = null;
+    if (text.startsWith('gsk_')) detected = 'groq';
+    else if (text.startsWith('sk-ant-')) detected = 'claude';
+    else if (text.startsWith('sk-')) detected = 'openai';
+    else if (text.length > 30 && /^[A-Za-z0-9_-]+$/.test(text)) detected = 'gemini';
+
+    if (detected) {
+      console.log('[Terminal Buddy] Detected key for:', detected);
+      vsc.postMessage({ type: 'updateProviderKey', payload: { provider: detected, key: text } });
+      vsc.postMessage({ type: 'updateSetting', payload: { key: 'aiProvider', value: detected } });
+      showWarn('Detected ' + detected + ' key and updated settings! ✨');
+    }
+  });
+
+  function updateSettingsUI(c) {
+    if (!c) return;
+    if (c.enabled !== undefined) document.getElementById('setting-enabled').checked = c.enabled;
+    if (c.petEnabled !== undefined) document.getElementById('setting-petEnabled').checked = c.petEnabled;
+    if (c.petName) document.getElementById('setting-petName').value = c.petName;
+    if (c.petType) document.getElementById('setting-petType').value = c.petType;
+    if (c.endpoint) document.getElementById('setting-endpoint').value = c.endpoint;
+
+    // New settings
+    if (c.aiEnabled !== undefined) document.getElementById('setting-aiEnabled').checked = c.aiEnabled;
+    if (c.enableInterception !== undefined) document.getElementById('setting-enableInterception').checked = c.enableInterception;
+    if (c.enableTerminalSafety !== undefined) document.getElementById('setting-enableTerminalSafety').checked = c.enableTerminalSafety;
+    if (c.warnOnMainPush !== undefined) document.getElementById('setting-warnOnMainPush').checked = c.warnOnMainPush;
+    if (c.scanAllPorts !== undefined) document.getElementById('setting-scanAllPorts').checked = c.scanAllPorts;
+    if (c.autoInjectEnvVars !== undefined) document.getElementById('setting-autoInjectEnvVars').checked = c.autoInjectEnvVars;
+    if (c.enableAuthDetection !== undefined) document.getElementById('setting-enableAuthDetection').checked = c.enableAuthDetection;
+
+    // Update provider cards
+    document.querySelectorAll('.provider-card').forEach(function(card) {
+      card.classList.remove('active');
+      if (card.getAttribute('data-id') === c.aiProvider) card.classList.add('active');
+    });
+
+    if (c.keys) {
+      Object.keys(c.keys).forEach(function(p) {
+        var st = document.getElementById('status-' + p);
+        if (st) {
+          st.textContent = c.keys[p] ? 'Ready' : (p === 'ollama' || p === 'custom' ? 'Local' : 'Off');
+          st.className = 'p-status' + (c.keys[p] ? ' ready' : '');
+        }
+      });
+    }
     
-    var filtered = allLogs.filter(function(l) {
-      var matchQuery = !query || l.cmd.toLowerCase().indexOf(query) !== -1;
-      var matchTerm = termId === 'all' || l.terminalId === termId;
-      var matchStatus = status === 'all' || l.status === status;
-      var matchProject = project === 'all' || l.project === project;
-      return matchQuery && matchTerm && matchStatus && matchProject;
+    var epRow = document.getElementById('row-endpoint');
+    if (epRow) epRow.style.display = (c.aiProvider === 'custom' || c.aiProvider === 'ollama') ? 'block' : 'none';
+  }
+
+  function renderUsage(data) {
+    if (!data) return;
+    var totalCost = 0;
+    var totalTokens = 0;
+    var h = '';
+    
+    Object.keys(data).forEach(function(p) {
+      var s = data[p];
+      totalCost += s.totalCost;
+      totalTokens += s.totalTokens;
+      h += '<div class="u-item">' +
+           '<div class="u-provider-info">' +
+           '<div class="u-name">' + esc(p) + '</div>' +
+           '<div class="u-count">' + s.requestCount + ' requests</div></div>' +
+           '<div class="u-stats">' +
+           '<div class="u-cost">$' + s.totalCost.toFixed(4) + '</div>' +
+           '<div class="u-tokens">' + s.totalTokens + ' tokens</div></div></div>';
     });
 
-    filtered.sort(function(a, b) {
-      var ta = a.timestamp || 0;
-      var tb = b.timestamp || 0;
-      return sort === 'asc' ? ta - tb : tb - ta;
-    });
-
-    renderLog(filtered, true);
+    safeSet('usage-total-cost', '$' + totalCost.toFixed(2));
+    safeSet('usage-total-tokens', totalTokens + ' tokens estimated');
+    safeSet('usage-provider-list', h || '<div class="empty">No usage data.</div>');
   }
 
-  function addChatMsg(content, role) {
-    var container = document.getElementById('chat-msgs');
-    if (!container) return null;
-    var div = document.createElement('div');
-    div.className = 'msg ' + role;
-    div.innerHTML = (role.indexOf('thinking') !== -1) ? '<span class="thinking-dots">' + esc(content) + '</span>' : content;
-    container.appendChild(div);
-    container.scrollTop = container.scrollHeight;
-    return div;
-  }
-
-  function handleStreamChunk(chunk) {
-    if (!streamEl) {
-      var thinking = document.querySelector('#chat-msgs .msg.thinking');
-      if (thinking) { thinking.parentNode.removeChild(thinking); }
-      streamEl = addChatMsg('', 'buddy');
-    }
-    var raw = (streamEl.getAttribute('data-raw') || '') + chunk;
-    streamEl.setAttribute('data-raw', raw);
-    streamEl.innerHTML = parseMd(raw);
-    var c = document.getElementById('chat-msgs');
-    if (c) { c.scrollTop = c.scrollHeight; }
-  }
-
-  function finalizeStream() {
-    if (streamEl) {
-      streamEl.innerHTML = parseMd(streamEl.getAttribute('data-raw') || '');
-      streamEl = null;
-    }
-  }
-
-  function updatePet(s) {
-    var emoji = document.getElementById('pet-emoji');
-    var mood = document.getElementById('pet-mood');
-    var lv = document.getElementById('pet-lv');
+  function updatePetUI(s) {
+    if (!s) return;
+    var emo = document.getElementById('pet-emoji');
+    if (emo) emo.textContent = s.emoji || '🐱';
+    safeSet('pet-mood', s.mood || 'ready');
+    safeSet('pet-name', s.name || 'Buddy');
+    safeSet('pet-lv', 'Lv.' + (s.level || 1));
     var fill = document.getElementById('xp-fill');
-    var name = document.getElementById('pet-name');
-    if (emoji && s) {
-      var typeMap = PET_MAP[s.type] || PET_MAP.cat;
-      emoji.textContent = typeMap[s.mood] || typeMap.neutral || '🐱';
-    }
-    if (mood && s) { mood.textContent = s.mood || 'ready'; }
-    if (lv && s) { lv.textContent = 'Lv.' + (s.level || 1); }
-    if (name && s) { name.textContent = s.name || 'Buddy'; }
-    if (fill && s) { fill.style.width = (s.xp % 100) + '%'; }
+    if (fill) fill.style.width = (s.xp % 100) + '%';
   }
 
-  function renderLog(logs, isFilter) {
-    var list = document.getElementById('log-list');
-    if (!list) return;
-    if (!logs || !logs.length) {
-      list.innerHTML = '<div class="empty">' + (isFilter ? 'No matching logs.' : 'No commands yet.') + '</div>';
-      return;
-    }
-    var html = '';
-    for (var i = 0; i < logs.length; i++) {
-        var l = logs[i];
-        var cls = l.status === 'error' ? 'err' : 'ok';
-        var json = JSON.stringify(l).replace(/'/g, "&#39;").replace(/"/g, "&quot;");
-        html += '<div class="log-entry ' + cls + '" onclick=\\\'vscPost("explainEntry", ' + json + ')\\\'><div class="log-cmd">' + esc(l.cmd) + '</div></div>';
-    }
-    list.innerHTML = html;
+  function updateAiStatus(info) {
+    var dot = document.getElementById('ai-status-dot');
+    var txt = document.getElementById('ai-status-text');
+    if (dot) dot.className = info.isOffline ? 'offline' : 'online';
+    if (txt) txt.textContent = info.isOffline ? (info.reason || 'Offline') : (info.provider + ' Active');
   }
 
-  function renderLive(commands) {
-    var list = document.getElementById('live-list');
-    if (!list || !commands) return;
-    var html = '';
-    for (var i = 0; i < commands.length; i++) {
-        var c = commands[i];
-        html += '<div class="live-entry"><div class="entry-cmd-text">' + esc(c.cmd || c.name || '') + '</div>' +
-          '<div class="entry-sub"><span>' + esc(c.terminalName || '') + '</span></div></div>';
+  function renderLog(logs) {
+    var h = '';
+    logs.slice(0, 50).forEach(function(l) {
+      var cls = l.status === 'error' ? 'err' : 'ok';
+      h += '<div class="log-entry ' + cls + '" data-action="explainEntry" data-id="' + l.id + '">' +
+           '<div class="log-cmd">' + esc(l.cmd) + '</div></div>';
+    });
+    safeSet('log-list', h || '<div class="empty">No commands.</div>');
+  }
+
+  function renderLive(cmds) {
+    var h = '';
+    if (cmds && cmds.length) {
+      cmds.forEach(function(c) {
+        h += '<div class="live-entry"><div class="entry-sub"><span class="live-badge">Running</span> ' + esc(c.terminalName) + '</div>' + 
+             '<div class="entry-cmd-text">' + esc(c.cmd) + '</div></div>';
+      });
     }
-    list.innerHTML = html || '<div class="empty">No active commands.</div>';
+    safeSet('live-list', h || '<div class="empty">No active commands.</div>');
   }
 
   function renderPorts(ports) {
-    var list = document.getElementById('ports-list');
-    if (!list || !ports) return;
-    var html = '';
-    for (var i = 0; i < ports.length; i++) {
-        var p = ports[i];
-        html += '<div class="card"><div class="pkg-row"><div><div class="pkg-name">:' + esc(p.port) + ' - ' + esc(p.label || p.name || '') + '</div></div>' +
-          '<button class="kill-btn" onclick=\\\'vscPost("killPort", {port:' + p.port + ',pid:' + (p.pid || 0) + '})\\\'>Kill</button>' +
-          '</div></div>';
+    var h = '';
+    ports.forEach(function(p) {
+      h += '<div class="port-card"><div class="card-info"><div class="card-title">Port :' + p.port + '</div>' +
+           '<div class="card-sub">' + esc(p.label) + '</div></div>' +
+           '<button class="icon-btn kill" data-action="killPort" data-id="' + p.port + '" data-extra="' + p.pid + '">💀</button></div>';
+    });
+    safeSet('ports-list', h || '<div class="empty">No active servers.</div>');
+  }
+
+  function renderPkgs(pkgs) {
+    if (!pkgs || !pkgs.length) {
+      safeSet('pkgs-list', '<div class="empty">No scripts.</div>');
+      return;
     }
-    list.innerHTML = html || '<div class="empty">No dev servers.</div>';
-  }
-
-  function renderGitTree(data) {
-    var container = document.getElementById('git-content');
-    if (!container || !data) return;
-    var html = '<div class="branch-badge">🌿 ' + esc(data.branch || 'unknown') + '</div>';
-    if (data.guide) { html += '<div class="git-tip">' + esc(data.guide) + '</div>'; }
-    container.innerHTML = html;
-  }
-
-  function renderPkgs(list) {
-    var container = document.getElementById('pkgs-list');
-    if (!container || !list) return;
     
     var groups = {};
-    for (var i = 0; i < list.length; i++) {
-      var pkg = list[i];
-      var dir = pkg.path || 'Root';
-      if (!groups[dir]) groups[dir] = [];
-      groups[dir].push(pkg);
-    }
+    pkgs.forEach(function(p) {
+      if (!groups[p.group]) groups[p.group] = [];
+      groups[p.group].push(p);
+    });
 
-    var html = '';
-    var keys = Object.keys(groups);
-    keys.sort();
-    for (var k = 0; k < keys.length; k++) {
-      var dirName = keys[k];
-      var pkgs = groups[dirName];
-      html += '<div class="pkg-group"><div class="pkg-group-header">' + esc(dirName) + '</div>';
-      for (var j = 0; j < pkgs.length; j++) {
-        var p = pkgs[j];
-        var json = JSON.stringify(p).replace(/'/g, "&#39;").replace(/"/g, "&quot;");
-        html += '<div class="card pkg-row"><div><div class="pkg-name">' + esc(p.name) + '</div><div class="pkg-type">' + esc(p.type || '') + '</div></div>' +
-          '<button class="run-btn btn-sm" onclick=\\\'vscPost("runExecutable",' + json + ')\\\'>Run</button></div>';
-      }
-      html += '</div>';
-    }
-    container.innerHTML = html || '<div class="empty">No scripts.</div>';
-  }
-
-  function renderExplanation(ex) {
-    if (!ex) return;
-    var container = document.getElementById('ai-expl');
-    if (!container) return;
-    container.style.display = 'block';
-    
-    var activeTab = document.querySelector('.tab.active');
-    if (activeTab && activeTab.getAttribute('data-tab') !== 'chat') {
-       var chatTab = document.querySelector('.tab[data-tab="chat"]');
-       if (chatTab) chatTab.click();
-    }
-
-    var html = '<div class="explain-card card">';
-    if (ex.summary) html += '<div class="ec-label">Summary</div><div>' + esc(ex.summary) + '</div>';
-    if (ex.cause) html += '<div class="ec-label" style="margin-top:8px">Cause</div><div>' + esc(ex.cause) + '</div>';
-    if (ex.fix) html += '<div class="ec-fix"><div class="ec-label">Fix</div><div>' + esc(ex.fix) + '</div></div>';
-    if (ex.suggestedCommands && ex.suggestedCommands.length) {
-      html += '<div style="margin-top:8px">';
-      for (var i = 0; i < ex.suggestedCommands.length; i++) {
-        var cmd = ex.suggestedCommands[i];
-        html += '<button class="sug-btn" onclick=\\\'vscPost("runCommand","' + esc(cmd) + '")\\\'>' + esc(cmd) + '</button>';
-      }
-      html += '</div>';
-    }
-    html += '</div>';
-    container.innerHTML = html;
-    if (typeof container.scrollIntoView === "function") {
-       container.scrollIntoView({ behavior: "smooth" });
-    }
+    var h = '';
+    Object.keys(groups).sort().forEach(function(g) {
+      h += '<div class="pkg-group-header">' + esc(g) + '</div>';
+      groups[g].forEach(function(p) {
+        h += '<div class="explorer-card" data-action="runExecutable" data-id="' + esc(p.name) + '">' +
+             '<div class="icon">' + (p.type === 'npm' ? '📦' : (p.type === 'python' ? '🐍' : '⚙️')) + '</div>' +
+             '<div class="name">' + esc(p.name) + '</div>' +
+             '<div class="type">' + esc(p.type) + '</div></div>';
+      });
+    });
+    safeSet('pkgs-list', h);
   }
 
   function renderExplorer(map) {
-    var container = document.getElementById('explorer-tree');
-    if (!container || !map || !map.projects) return;
-    var html = '';
-    for (var i = 0; i < map.projects.length; i++) {
-      var proj = map.projects[i];
-      html += '<div class="tree-node folder" onclick=\\\'vscPost("openFile","' + esc(proj.path || '') + '")\\\'>📁 ' + esc(proj.name) + '</div>';
-      var files = proj.topLevelFiles || [];
-      for (var j = 0; j < Math.min(files.length, 10); j++) {
-        html += '<div class="tree-node file" style="padding-left:18px" onclick=\\\'vscPost("openFile","' + esc(files[j]) + '")\\\'>📄 ' + esc(files[j].split(/[\\\\\\\\/]/).pop() || files[j]) + '</div>';
-      }
+    if (!map) return;
+    var rootName = map.rootPath ? map.rootPath.split(/[\\\/]/).pop() : 'Unknown';
+    var h = '<div class="explorer-header">Workspace: ' + esc(rootName) + '</div>';
+    
+    if (map.fileTree) {
+      h += '<div class="tree-container">' + renderTree(map.fileTree, 0) + '</div>';
     }
-    container.innerHTML = html || '<div class="empty">No projects.</div>';
+
+    if (map.projects && map.projects.length) {
+      h += '<div class="projects-section"><div class="section-title">Detected Projects</div>';
+      map.projects.forEach(function(p) {
+        h += '<div class="project-card" data-action="aiMoveDirectory" data-id="' + p.path + '">' +
+             '<div class="p-icon">' + (p.type === 'node' ? '🟢' : (p.type === 'python' ? '🐍' : '📂')) + '</div>' +
+             '<div class="p-info"><div class="p-name">' + esc(p.name) + '</div>' +
+             '<div class="p-type">' + esc(p.type) + '</div></div></div>';
+      });
+      h += '</div>';
+    }
+    safeSet('explorer-tree', h || '<div class="empty">No files.</div>');
+  }
+
+  function renderTree(node, depth) {
+    var h = '';
+    var indent = depth * 12;
+    var isDir = node.type === 'directory';
+    var icon = isDir ? '📁' : '📄';
+    
+    h += '<div class="tree-item" style="padding-left:' + indent + 'px" ' + (isDir ? '' : 'data-action="openFile" data-id="' + node.path + '"') + '>' +
+         '<span class="tree-icon">' + icon + '</span>' +
+         '<span class="tree-label">' + esc(node.name) + '</span></div>';
+    
+    if (node.children && node.children.length) {
+      node.children.forEach(function(c) { h += renderTree(c, depth + 1); });
+    }
+    return h;
+  }
+
+  function renderGit(data) {
+    if (!data) {
+      safeSet('git-content', '<div class="empty"><div class="empty-icon">🐙</div><div class="empty-text">Not a git repository.</div></div>');
+      return;
+    }
+    var branchCls = data.branch === 'main' || data.branch === 'master' ? 'branch-main' : 'branch-feature';
+    var h = '<div class="git-header">' +
+            '<div class="git-branch ' + branchCls + '">🌿 ' + esc(data.branch) + '</div>' +
+            (data.remoteUrl ? '<div class="git-remote">' + esc(data.remoteUrl) + '</div>' : '') +
+            '</div>';
+    
+    if (data.guide) {
+      h += '<div class="git-guide">' + data.guide + '</div>';
+    }
+
+    if (data.tree) {
+      h += '<div class="git-tree-header">Changes</div>' + renderGitTree(data.tree, 0);
+    } else {
+      h += '<div class="empty">No uncommitted changes.</div>';
+    }
+    safeSet('git-content', h);
+  }
+
+  function renderGitTree(node, depth) {
+    var h = '';
+    var indent = depth * 12;
+    var statusCls = 'status-' + (node.status || 'clean').replace('?', 'untracked');
+    
+    if (node.name !== 'root') {
+      h += '<div class="tree-item ' + statusCls + '" style="padding-left:' + indent + 'px">' +
+           '<span class="tree-label">' + esc(node.name) + '</span>' +
+           '<span class="status-badge">' + (node.status === '??' ? 'U' : (node.status === 'M' ? 'M' : 'A')) + '</span></div>';
+    }
+    
+    if (node.children && node.children.length) {
+      node.children.forEach(function(c) { h += renderGitTree(c, node.name === 'root' ? 0 : depth + 1); });
+    }
+    return h;
+  }
+
+  function renderVault(keys) {
+    var h = '';
+    keys.forEach(function(k) {
+      h += '<div class="vault-item">' +
+           '<div class="v-row"><div class="v-info">' +
+           '<div class="v-name">' + esc(k.name) + '</div>' +
+           '<div class="v-env">' + esc(k.envVar) + '</div></div>' +
+           '<div class="v-actions">' +
+           (k.hasValue ? '<button class="v-btn primary" data-action="injectVaultKey" data-id="' + k.id + '">Inject 🚀</button>' : '') +
+           '<button class="v-btn danger" data-action="deleteVaultKey" data-id="' + k.id + '">🗑️</button></div></div>' +
+           '<div class="v-input-row">' +
+           '<input type="password" class="v-input" id="v-key-' + k.id + '" placeholder="' + (k.hasValue ? '••••••••' : 'Enter Secret/Token') + '" />' +
+           '<button class="v-btn" data-action="updateVaultKey" data-id="' + k.id + '">Save</button></div></div>';
+    });
+    safeSet('vault-list', h || '<div class="empty"><div class="empty-icon">🔐</div><div class="empty-text">Your vault is empty.</div></div>');
+
+    // Add listeners for dynamically created Save buttons
+    document.querySelectorAll('[data-action="updateVaultKey"]').forEach(function(btn) {
+      btn.onclick = function() {
+        var id = btn.getAttribute('data-id');
+        var val = document.getElementById('v-key-' + id).value.trim();
+        if (val) vsc.postMessage({ type: 'updateVaultKey', payload: { id: id, value: val } });
+      };
+    });
+  }
+
+  var addVaultBtn = document.getElementById('vault-add-btn');
+  if (addVaultBtn) {
+    addVaultBtn.onclick = function() {
+      var name = document.getElementById('vault-new-name').value.trim();
+      var env = document.getElementById('vault-new-env').value.trim();
+      if (name && env) {
+        vsc.postMessage({ type: 'addVaultKey', payload: { name: name, envVar: env } });
+        document.getElementById('vault-new-name').value = '';
+        document.getElementById('vault-new-env').value = '';
+      }
+    };
   }
 
   function updateTerminals(list) {
-    terminals = list || [];
-    var sel = document.getElementById('terminal-selector');
-    var filterSel = document.getElementById('term-filter');
-    if (!sel) return;
-    var html = '';
-    var optHtml = '<option value="all">All Terminals</option>';
-    for (var i = 0; i < terminals.length; i++) {
-        var t = terminals[i];
-        html += '<div class="terminal-card"><div class="term-header"><div class="term-name">' + esc(t.name) + '</div>' +
-          '<div class="term-status' + (t.isExecuting ? ' executing' : '') + '"></div></div>' +
-          '<div class="term-actions"><button class="ask-btn" onclick=\\\'vscPost("focusTerminal","' + esc(t.id) + '")\\\'>Focus</button>' +
-          '<button class="kill-btn" style="font-size:10px;padding:2px 8px" onclick=\\\'vscPost("killTerminal","' + esc(t.id) + '")\\\'>Kill</button></div></div>';
-        optHtml += '<option value="' + esc(t.id) + '">' + esc(t.name) + '</option>';
+    var h = '';
+    list.forEach(function(t) {
+      h += '<div class="terminal-card"><div class="card-info"><div class="card-title">' + esc(t.name) + '</div></div>' +
+           '<button class="icon-btn focus" data-action="focusTerminal" data-id="' + t.id + '">🎯</button></div>';
+    });
+    safeSet('terminal-selector', h);
+  }
+
+  function showThinking() {
+    var m = document.getElementById('chat-msgs');
+    if (!m) return;
+    var d = document.createElement('div');
+    d.className = 'msg buddy thinking';
+    d.textContent = 'Thinking...';
+    m.appendChild(d);
+    m.scrollTop = m.scrollHeight;
+  }
+
+  function handleStream(c) {
+    if (!streamEl) {
+      var th = document.querySelector('.msg.thinking');
+      if (th) th.remove();
+      streamEl = document.createElement('div');
+      streamEl.className = 'msg buddy';
+      document.getElementById('chat-msgs').appendChild(streamEl);
     }
-    sel.innerHTML = html;
-    if (filterSel) filterSel.innerHTML = optHtml;
+    streamEl.textContent += c;
+    var m = document.getElementById('chat-msgs');
+    m.scrollTop = m.scrollHeight;
   }
 
-  function populateProjectFilter(logs) {
-    var sel = document.getElementById('project-filter');
-    if (!sel) return;
-    var projects = {};
-    for (var i = 0; i < logs.length; i++) {
-        var pName = logs[i].project;
-        if (pName) projects[pName] = true;
-    }
-    var html = '<option value="all">All Projects</option>';
-    var keys = Object.keys(projects).sort();
-    for (var j = 0; j < keys.length; j++) {
-        html += '<option value="' + esc(keys[j]) + '">' + esc(keys[j]) + '</option>';
-    }
-    // Only update if options changed to preserve selection if possible
-    var currentVal = sel.value;
-    sel.innerHTML = html;
-    sel.value = currentVal || 'all';
+  function finalizeStream() { streamEl = null; }
+
+  function showWarn(msg) {
+    var w = document.getElementById('warn-bar');
+    if (!w) return;
+    w.textContent = msg;
+    w.style.display = 'block';
+    setTimeout(function() { w.style.display = 'none'; }, 4000);
   }
 
-  function updateStats(s) {
-    var tok = document.querySelector('#st-ok .st-val');
-    var terr = document.querySelector('#st-err .st-val');
-    var tall = document.querySelector('#st-total .st-val');
-    if (tok) tok.textContent = s.ok || 0;
-    if (terr) terr.textContent = s.err || 0;
-    if (tall) tall.textContent = s.total || 0;
-  }
-
-  function updateAiInfo(info) {
-    var badge = document.getElementById('ai-badge');
-    if (badge) { badge.textContent = (info.provider || 'AI').toUpperCase() + ' - ' + (info.model || ''); }
-  }
-
-  function showWarning(txt) {
-    var bar = document.getElementById('warn-bar');
-    if (bar) {
-      bar.textContent = txt;
-      bar.style.display = 'block';
-      setTimeout(function() { bar.style.display = 'none'; }, 4000);
-    }
-  }
-
-  function showSafety(data) {
-    var overlay = document.getElementById('safety-overlay');
-    if (overlay) {
-      pendingCmd = data.cmd;
-      var msg = document.getElementById('safety-msg');
-      var preview = document.getElementById('safety-cmd-preview');
-      if (msg) msg.textContent = (data.alert && data.alert.explanation) ? data.alert.explanation : 'Safety alert.';
-      if (preview) preview.textContent = data.cmd;
-      overlay.className += ' show';
-    }
-  }
-
-  window.vscPost = function(type, payload) { vsc.postMessage({ type: type, payload: payload }); };
-
-  var tabEls = document.querySelectorAll('.tab');
-  for (var i = 0; i < tabEls.length; i++) {
-    (function(idx) {
-        tabEls[idx].addEventListener('click', function() {
-          var target = this.getAttribute('data-tab');
-          var allTabs = document.querySelectorAll('.tab');
-          for (var j = 0; j < allTabs.length; j++) { allTabs[j].className = allTabs[j].className.replace(' active', ''); }
-          var allPanels = document.querySelectorAll('.panel');
-          for (var k = 0; k < allPanels.length; k++) { allPanels[k].className = allPanels[k].className.replace(' active', ''); }
-          this.className += ' active';
-          var p = document.getElementById('panel-' + target);
-          if (p) p.className += ' active';
-        });
-    })(i);
-  }
-
-  // Filter Toggle
-  var filterBtn = document.getElementById('filter-toggle-btn');
-  if (filterBtn) {
-    filterBtn.addEventListener('click', function() {
-      var box = document.getElementById('log-filters-box');
-      if (box) {
-        if (box.className.indexOf('active') !== -1) {
-          box.className = box.className.replace(' active', '');
-        } else {
-          box.className += ' active';
-        }
+  var inp = document.getElementById('chat-input');
+  if (inp) {
+    inp.addEventListener('keydown', function(e) {
+      if (e.keyCode === 13 && !e.shiftKey) {
+        e.preventDefault();
+        var v = inp.value.trim();
+        if (!v) return;
+        var m = document.getElementById('chat-msgs');
+        var d = document.createElement('div');
+        d.className = 'msg user';
+        d.textContent = v;
+        m.appendChild(d);
+        vsc.postMessage({ type: 'askBuddy', payload: v });
+        inp.value = '';
+        m.scrollTop = m.scrollHeight;
       }
     });
   }
 
-  // Log Search & Select Filters
-  var logSearch = document.getElementById('log-search');
-  if (logSearch) logSearch.addEventListener('input', applyFilters);
-  var termFil = document.getElementById('term-filter');
-  if (termFil) termFil.addEventListener('change', applyFilters);
-  var statFil = document.getElementById('status-filter');
-  if (statFil) statFil.addEventListener('change', applyFilters);
-  var projectFil = document.getElementById('project-filter');
-  if (projectFil) projectFil.addEventListener('change', applyFilters);
-  var sortFil = document.getElementById('sort-filter');
-  if (sortFil) sortFil.addEventListener('change', applyFilters);
-
-  var sendBtn = document.getElementById('send-btn');
-  var inputEl = document.getElementById('chat-input');
-  function doSend() {
-    var v = (inputEl.value || '').trim();
-    if (!v) return;
-    addChatMsg(esc(v), 'user');
-    vsc.postMessage({ type: 'askBuddy', payload: v });
-    inputEl.value = '';
+  var mv = document.getElementById('ai-mover-input');
+  if (mv) {
+    mv.addEventListener('keydown', function(e) {
+      if (e.keyCode === 13) {
+        vsc.postMessage({ type: 'aiMoveDirectory', payload: mv.value.trim() });
+        mv.value = '';
+      }
+    });
   }
-  if (sendBtn) sendBtn.addEventListener('click', doSend);
-  if (inputEl) inputEl.addEventListener('keydown', function(e) { if (e.keyCode === 13 && !e.shiftKey) { e.preventDefault(); doSend(); } });
 
-  setTimeout(function() { vsc.postMessage({ type: 'ready' }); }, 150);
+  vsc.postMessage({ type: 'ready' });
 })();
 `;

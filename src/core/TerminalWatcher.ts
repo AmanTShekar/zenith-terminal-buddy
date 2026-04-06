@@ -39,7 +39,7 @@ export class TerminalWatcher implements vscode.Disposable {
   private readonly _onCommandFinished = new vscode.EventEmitter<CommandEntry>();
   public readonly onCommandFinished = this._onCommandFinished.event;
 
-  private readonly _onCommandStart = new vscode.EventEmitter<{ id: string; cmd: string; cwd: string; terminalId: string; terminalName: string }>();
+  private readonly _onCommandStart = new vscode.EventEmitter<{ id: string; cmd: string; cwd: string; terminalId: string; terminalName: string; isAgentRun: boolean }>();
   public readonly onCommandStart = this._onCommandStart.event;
 
   private readonly _onWrongDirectory = new vscode.EventEmitter<{ cmd: string; correctPath: string }>();
@@ -63,6 +63,8 @@ export class TerminalWatcher implements vscode.Disposable {
   private debounceTimers = new Map<vscode.Terminal, NodeJS.Timeout>();
   private pendingPurposeRequests = new Set<string>();
   private lastBuddyTerminal?: vscode.Terminal;
+  private lastCommandTime = new Map<vscode.Terminal, number>();
+  private agentDetected = new Map<vscode.Terminal, boolean>();
 
   public getTerminalId(terminal: vscode.Terminal): string {
     if (!this.terminalIds.has(terminal)) {
@@ -108,7 +110,8 @@ export class TerminalWatcher implements vscode.Disposable {
         if (h.length > this.historyLimit) { h.shift(); }
         this.history.set(termId, h);
 
-        this._onCommandStart.fire({ id, cmd, cwd, terminalId: termId, terminalName: terminal.name });
+        const isAgentRun = this.hasAgentActivity(terminal, Date.now());
+        this._onCommandStart.fire({ id, cmd, cwd, terminalId: termId, terminalName: terminal.name, isAgentRun });
         this.readExecutionOutput(terminal, execution);
       }),
     );
@@ -132,7 +135,7 @@ export class TerminalWatcher implements vscode.Disposable {
           exitCode,
           tag: tagCommand(buffer.cmd),
           timestamp: buffer.startTime,
-          isAgentRun: this.detectAgentRun(terminal),
+          isAgentRun: this.detectAgentRun(terminal, buffer.startTime),
           errorOutput: status === 'error' ? stripAnsi(buffer.output).substring(0, MAX_ERROR_OUTPUT_LENGTH) : undefined,
           durationMs: Date.now() - buffer.startTime,
           terminalId: this.getTerminalId(terminal),
@@ -161,7 +164,7 @@ export class TerminalWatcher implements vscode.Disposable {
             exitCode: null,
             tag: tagCommand(buffer.cmd),
             timestamp: buffer.startTime,
-            isAgentRun: this.detectAgentRun(terminal),
+            isAgentRun: this.detectAgentRun(terminal, buffer.startTime),
             errorOutput: 'Terminal closed before command finished',
             terminalId: termId || 'unknown',
             terminalName: terminal.name,
@@ -254,7 +257,7 @@ export class TerminalWatcher implements vscode.Disposable {
         exitCode: 1,
         tag: 'other',
         timestamp: buffer.startTime,
-        isAgentRun: this.detectAgentRun(terminal),
+        isAgentRun: this.detectAgentRun(terminal, buffer.startTime),
         errorOutput: this.extractErrorOutput(output),
       };
       this._onCommandFinished.fire(entry);
@@ -400,8 +403,32 @@ export class TerminalWatcher implements vscode.Disposable {
     return parts[parts.length - 1] || 'unknown';
   }
 
-  private detectAgentRun(terminal: vscode.Terminal): boolean {
-    return this.lastBuddyTerminal === terminal;
+  private detectAgentRun(terminal: vscode.Terminal, startTime: number): boolean {
+    if (this.lastBuddyTerminal === terminal) {
+      return true;
+    }
+    
+    // Heuristic: If commands start less than 1.5s after the previous one ended, it's likely an agent
+    const lastTime = this.lastCommandTime.get(terminal) || 0;
+    const isRapid = (startTime - lastTime) < 1500;
+    
+    this.lastCommandTime.set(terminal, Date.now());
+    
+    if (isRapid) {
+      this.agentDetected.set(terminal, true);
+    }
+    
+    return this.agentDetected.get(terminal) || false;
+  }
+
+  private hasAgentActivity(terminal: vscode.Terminal, now: number): boolean {
+     if (this.lastBuddyTerminal === terminal) { return true; }
+     const lastTime = this.lastCommandTime.get(terminal) || 0;
+     if ((now - lastTime) < 1500) {
+        this.agentDetected.set(terminal, true);
+        return true;
+     }
+     return this.agentDetected.get(terminal) || false;
   }
 
   dispose(): void {

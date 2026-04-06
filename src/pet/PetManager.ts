@@ -45,7 +45,17 @@ export class PetManager implements vscode.Disposable {
     const userType = config.get<PetType>('petType', 'cat');
     const userName = config.get<string>('petName', 'Buddy');
 
-    if (saved) {
+    if (!this.isEnabled()) {
+      this.state = {
+        type: userType,
+        name: userName,
+        mood: 'sleeping',
+        xp: 0,
+        level: 1,
+        errorsFixed: 0,
+        lastActiveAt: Date.now(),
+      };
+    } else if (saved) {
       this.state = { ...saved, type: userType, name: userName };
     } else {
       this.state = {
@@ -91,7 +101,8 @@ export class PetManager implements vscode.Disposable {
 
   // ── Event handlers (called from extension.ts) ──────────────────────────
 
-  onCommandStart(cmd: string): void {
+  onCommandStart(cmd: string, isAgent: boolean = false): void {
+    if (!this.isEnabled() || isAgent) return;
     const config = vscode.workspace.getConfiguration('terminalBuddy');
     if (/npm\s+run|python|node|go\s+run/i.test(cmd)) {
       this.setTemporaryMood('excited', -1); // Indefinite excited (running) until finished
@@ -101,6 +112,7 @@ export class PetManager implements vscode.Disposable {
   }
 
   onCommand(entry: CommandEntry): void {
+    if (!this.isEnabled()) return;
     // Clear indefinite "running" mood if set
     if (this.moodTimer === null && this.state.mood === 'excited') {
        this.state.mood = 'neutral';
@@ -111,6 +123,15 @@ export class PetManager implements vscode.Disposable {
 
     this.state.lastActiveAt = Date.now();
     this.resetInactivityTimer();
+
+    // 🤖 Agent Awareness: Buddy only gains XP and gets happy for User actions
+    if (entry.isAgentRun) {
+      if (entry.status === 'error') {
+        this.setTemporaryMood('worried', 5000);
+      }
+      this.save();
+      return;
+    }
 
     this.recentStatuses.push(entry.status);
     if (this.recentStatuses.length > 5) {
@@ -170,9 +191,13 @@ export class PetManager implements vscode.Disposable {
     return PET_EMOJIS[this.state.type]?.[this.state.mood] ?? '🐱';
   }
 
-  private updateStatusBar(): void {
+  private isEnabled(): boolean {
     const config = vscode.workspace.getConfiguration('terminalBuddy');
-    if (!config.get<boolean>('petEnabled', true)) {
+    return config.get<boolean>('enabled', true) && config.get<boolean>('petEnabled', true);
+  }
+
+  private updateStatusBar(): void {
+    if (!this.isEnabled()) {
       this.statusBarItem.hide();
       return;
     }

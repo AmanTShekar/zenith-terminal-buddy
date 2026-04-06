@@ -12,7 +12,10 @@ import { TerminalWatcher } from '../core/TerminalWatcher';
 import { SystemPortMonitor, ActivePort } from '../core/PortMonitor';
 import { ExecutableScanner } from '../core/ExecutableScanner';
 import { EnvDiffChecker } from '../core/EnvDiffChecker';
-import { CommandEntry, WorkspaceMap, GitStatus, Suggestion, PetState } from '../types';
+import { AgentProcedures } from '../ai/AgentProcedures';
+import { KeyVault } from '../utils/KeyVault';
+import { TerminalAuthBuddy } from '../core/TerminalAuthBuddy';
+import { CommandEntry, WorkspaceMap, GitStatus, Suggestion, PetState, AIProviderType } from '../types';
 import { PANEL_CSS } from './PanelStyles';
 import { PANEL_JS } from './PanelScripts';
 import { getPanelContent } from './PanelHtml';
@@ -28,6 +31,7 @@ export class PanelProvider implements vscode.WebviewViewProvider {
   private isScanning = false;
   private isWebviewReady = false;
   private messageBuffer: PanelMessage[] = [];
+  private agentProcedures: AgentProcedures;
 
   constructor(
     private readonly extensionUri: vscode.Uri,
@@ -38,11 +42,15 @@ export class PanelProvider implements vscode.WebviewViewProvider {
     private readonly gitHelper: GitHelper,
     private readonly suggestionEngine: SuggestionEngine,
     private readonly petManager: PetManager,
-    private readonly aiClient: AIClient,
-    private readonly terminalWatcher: TerminalWatcher,
-    private readonly portMonitor: SystemPortMonitor,
-    private readonly executableScanner: ExecutableScanner
-  ) {}
+    private aiClient: AIClient,
+    private terminalWatcher: TerminalWatcher,
+    private portMonitor: SystemPortMonitor,
+    private executableScanner: ExecutableScanner,
+    private keyVault: KeyVault,
+    private authBuddy: TerminalAuthBuddy
+  ) {
+    this.agentProcedures = new AgentProcedures(this.aiClient);
+  }
 
   resolveWebviewView(
     webviewView: vscode.WebviewView, 
@@ -62,8 +70,18 @@ export class PanelProvider implements vscode.WebviewViewProvider {
     webviewView.webview.onDidReceiveMessage((msg: PanelMessage) => this.handleMessage(msg));
     webviewView.webview.html = this.getHtml(webviewView.webview);
 
-    // Send a heartbeat init message immediately to signal host availability
-    this.post({ type: 'init' });
+    // Listen for config changes to sync UI toggles instantly
+    vscode.workspace.onDidChangeConfiguration(e => {
+      if (e.affectsConfiguration('terminalBuddy')) {
+        this.sendConfig();
+        this.sendAiInfo();
+      }
+    });
+
+    // Start background activity only once
+    if (!this.isScanning) {
+      this.startBackgroundScans();
+    }
   }
 
   public post(msg: PanelMessage): void {
@@ -74,14 +92,22 @@ export class PanelProvider implements vscode.WebviewViewProvider {
       return;
     }
 
-    this.view.webview.postMessage(msg);
+    // 🛡️ Stability: Sanitize payload to prevent DataCloneError or circular refs
+    let sanitizedMsg = msg;
+    try {
+      sanitizedMsg = JSON.parse(JSON.stringify(msg));
+    } catch (e) {
+      console.error('[Terminal Buddy] Failed to sanitize message:', msg.type, e);
+    }
+
+    this.view.webview.postMessage(sanitizedMsg);
   }
 
   private flushBuffer(): void {
     while (this.messageBuffer.length > 0) {
       const msg = this.messageBuffer.shift();
       if (msg && this.view) {
-        this.view.webview.postMessage(msg);
+        this.post(msg);
       }
     }
   }
@@ -96,8 +122,12 @@ export class PanelProvider implements vscode.WebviewViewProvider {
     }); 
   }
 
-  sendPetState(s: PetState): void { 
-    this.post({ type: 'updatePetState', payload: s }); 
+  public sendPetState(): void {
+    const s = this.petManager.getState();
+    this.post({ 
+      type: 'updatePetState', 
+      payload: { ...s, emoji: this.petManager.getEmoji() } 
+    }); 
   }
 
   sendGitStatus(s: GitStatus | null): void { 
@@ -108,8 +138,47 @@ export class PanelProvider implements vscode.WebviewViewProvider {
     this.post({ type: 'updatePorts', payload: ports || [] }); 
   }
 
-  sendAiInfo(provider: string, model: string): void { 
-    this.post({ type: 'updateAiInfo', payload: { provider, model } }); 
+  public async sendAiInfo(): Promise<void> {
+    const config = await this.aiClient.getApiKey();
+    const tbConfig = vscode.workspace.getConfiguration('terminalBuddy');
+    const hasKey = !!config && !!config.key;
+    const provider = config?.provider || 'gemini';
+    const model = this.aiClient.getActiveModelName();
+
+    this.post({
+      type: 'updateAiInfo',
+      payload: {
+        provider,
+        model,
+        isOffline: !hasKey || !tbConfig.get<boolean>('enabled', true),
+        reason: !tbConfig.get<boolean>('enabled', true) ? 'Extension Disabled' : (!hasKey ? 'Missing API Key' : '')
+      }
+    });
+  }
+
+  public async sendConfig(): Promise<void> {
+    const config = vscode.workspace.getConfiguration('terminalBuddy');
+    
+    this.post({
+      type: 'updateConfig',
+      payload: {
+        enabled: config.get<boolean>('enabled', true),
+        petEnabled: config.get<boolean>('petEnabled', true),
+        petType: config.get<string>('petType', 'cat'),
+        petName: config.get<string>('petName', 'Buddy'),
+        aiEnabled: config.get<boolean>('aiEnabled', false),
+        aiProvider: config.get<string>('aiProvider', 'gemini'),
+        endpoint: config.get<string>('customEndpoint', ''),
+        warnOnMainPush: config.get('warnOnMainPush'),
+        enableTerminalSafety: config.get<boolean>('enableTerminalSafety', true),
+        enableInterception: config.get('enableInterception'),
+        scanAllPorts: config.get('scanAllPorts'),
+        autoInjectEnvVars: config.get('autoInjectEnvVars'),
+        enableVault: config.get('enableVault'),
+        enableAuthDetection: config.get('enableAuthDetection'),
+        keys: { }
+      }
+    });
   }
 
   sendAiThinking(): void { 
@@ -177,33 +246,25 @@ export class PanelProvider implements vscode.WebviewViewProvider {
   }
 
   private async sendInitialState(): Promise<void> {
-    // PHASE 1: Immediate & Lightweight (Triggers hatching and interaction)
     const logs = this.commandLogger.getAll();
     this.sendLog(logs); 
-    this.sendPetState(this.petManager.getState());
+    this.sendPetState();
     this.sendActiveCommands();
     
-    const config = vscode.workspace.getConfiguration('terminalBuddy');
-    const provider = config.get<string>('aiProvider', 'gemini');
-    this.sendAiInfo(provider.toUpperCase(), this.aiClient.getActiveModelName());
-    
-    // PHASE 2: Background & Scanning
+    await this.sendConfig();
+    this.sendAiInfo();
     this.sendTerminalSelector();
 
     if (vscode.workspace.workspaceFolders) {
       const root = vscode.workspace.workspaceFolders[0].uri.fsPath;
       
-      const m = this.projectScanner.getMap();
-      this.sendWorkspaceMap(m);
-      
-      this.projectScanner.scan().then(() => {
+      this.projectScanner.scan(true).then(() => {
         this.sendWorkspaceMap(this.projectScanner.getMap());
       }).catch(() => {});
 
-      // Use a brief timeout for Git to avoid blocking the main initialization response
-      setTimeout(() => {
-         this.updateGit(root).catch(() => {});
-      }, 500);
+      // Immediate triggers for Git and Pkgs
+      this.updateGit(root).catch(() => {});
+      this.scanExecutables().catch(() => {});
     }
   }
 
@@ -241,6 +302,7 @@ export class PanelProvider implements vscode.WebviewViewProvider {
             this.sendWarning(`.env missing keys: ${sample}`);
           }
           await this.updateGit(root);
+          await this.scanExecutables();
         }
       } catch (err) {
         console.error('[Terminal Buddy] Background scan error:', err);
@@ -262,23 +324,38 @@ export class PanelProvider implements vscode.WebviewViewProvider {
     }
   }
 
-  private handleMessage(msg: PanelMessage): void {
-    if (msg.type === 'ready') {
-      console.log('[Terminal Buddy] Webview READY received.');
-      this.isWebviewReady = true;
-      this.flushBuffer();
-
-      if (!this.initialStateSent) {
-        this.initialStateSent = true;
-        this.startBackgroundScans();
-      }
-      this.sendInitialState();
-      this.scanExecutables();
-      return;
-    }
-
+  private async handleMessage(msg: PanelMessage): Promise<void> {
+    const data = msg;
     try {
       switch (msg.type) {
+        case 'ready': {
+          console.log('[Terminal Buddy] Webview READY signal received.');
+          this.isWebviewReady = true;
+          this.flushBuffer();
+
+          if (!this.initialStateSent) {
+            this.initialStateSent = true;
+            this.sendInitialState();
+            this.scanExecutables();
+          }
+          break;
+        }
+        case 'error': {
+          console.error('[Terminal Buddy] Webview signaled high-level error:', msg.payload);
+          break;
+        }
+        case 'getUsage':
+          this.sendUsage();
+          break;
+        case 'clearUsage': {
+          (async () => {
+            await this.aiClient.clearUsageHistory();
+            this.sendWarning('Usage history cleared. ✨');
+            const summary = await this.aiClient.getUsageSummary();
+            this.post({ type: 'updateUsage', payload: summary });
+          })();
+          break;
+        }
         case 'runCommand': {
           const t = vscode.window.terminals[0] || vscode.window.createTerminal('Buddy');
           t.show();
@@ -323,21 +400,41 @@ export class PanelProvider implements vscode.WebviewViewProvider {
           const entry = msg.payload as CommandEntry;
           if (!entry) { break; }
           (async () => {
+            const configObj = vscode.workspace.getConfiguration('terminalBuddy');
+            const isEnabled = configObj.get<boolean>('enabled', true);
+            if (!isEnabled) {
+               this.sendWarning('Terminal Buddy is currently disabled. Please enable it in settings to use AI analysis.');
+               return;
+            }
+
+            const config = await this.aiClient.getApiKey();
+            const hasKey = !!config && !!config.key;
             this.post({ type: 'aiThinking' });
-            const projectInfo = this.projectScanner.getCurrentProject(entry.cwd);
-            const ex = await this.aiClient.explain(entry, projectInfo ?? undefined);
-            if (ex) { 
-              this.sendExplanation(ex); 
-            } else { 
-              this.sendWarning('AI offline, checking local rules...');
-              const ruleEx = await this.ruleEngine.check(entry.cmd, entry.errorOutput || '', entry.exitCode || 1, entry.cwd);
-              this.sendExplanation(ruleEx || { 
-                summary: 'No local explanation found for this error.',
-                cause: 'Unknown',
-                fix: 'Consult official documentation for this command.',
-                suggestedCommands: [],
-                source: 'fallback'
-              });
+            try {
+              if (hasKey) {
+                this.post({ type: 'agentThought', payload: 'Analyzing logs...' });
+                const projectInfo = this.projectScanner.getCurrentProject(entry.cwd);
+                const explanation = await this.aiClient.explain(entry, projectInfo ?? undefined);
+                if (explanation) {
+                  this.post({ type: 'aiExplanation', payload: { id: entry.id, explanation: explanation } });
+                } else {
+                  this.sendWarning("Buddy couldn't find a clear explanation for this command. Try re-running it or checking logs.");
+                  this.post({ type: 'aiStreamDone' });
+                }
+              } else {
+                this.sendWarning('AI is offline. Please configure your API key in the badge above.');
+                const ruleEx = await this.ruleEngine.check(entry.cmd, entry.errorOutput || '', entry.exitCode || 1, entry.cwd);
+                this.sendExplanation(ruleEx || {
+                  summary: 'No local explanation found for this error.',
+                  cause: 'Unknown',
+                  fix: 'Consult official documentation for this command.',
+                  suggestedCommands: [],
+                  source: 'fallback'
+                });
+              }
+            } catch (err) {
+              this.sendWarning(`AI Analysis failed: ${(err as Error).message}`);
+              this.post({ type: 'aiStreamDone' }); // Clear thinking state
             }
           })();
           break;
@@ -358,8 +455,17 @@ export class PanelProvider implements vscode.WebviewViewProvider {
                 this.post({ type: 'aiStreamChunk', payload: chunk });
               }
               this.post({ type: 'aiStreamDone' });
-            } catch (err) {
-              this.post({ type: 'aiStreamChunk', payload: `❌ Error: ${(err as Error).message}` });
+            } catch (err: any) {
+              const errMsg = err?.message || String(err);
+              if (errMsg.includes('localhost') || errMsg.includes('127.0.0.1')) {
+                this.post({ 
+                  type: 'aiStreamChunk', 
+                  payload: `⚠️ **AI Connection Failed**: I couldn't reach your local AI server (Ollama/LocalAI) at \`localhost:11434\`. \n\n Would you like to switch to **Google Gemini** (Cloud) instead?` 
+                });
+                this.post({ type: 'aiActionableError', payload: { action: 'switchToGemini', label: 'Switch to Gemini' } });
+              } else {
+                this.post({ type: 'aiStreamChunk', payload: `❌ AI Error: ${errMsg}` });
+              }
               this.post({ type: 'aiStreamDone' });
             }
           })();
@@ -384,6 +490,84 @@ export class PanelProvider implements vscode.WebviewViewProvider {
           })();
           break;
         }
+        case 'fixEntry': {
+          const entry = msg.payload as CommandEntry;
+          if (!entry) { break; }
+          (async () => {
+            const projectInfo = this.projectScanner.getCurrentProject(entry.cwd);
+            await this.agentProcedures.runAgentFix(
+              entry,
+              projectInfo ?? undefined,
+              (thought) => this.post({ type: 'agentThought', payload: thought }),
+              (suggestion) => this.post({ type: 'agentFixSuggestion', payload: suggestion })
+            );
+          })();
+          break;
+        }
+        case 'copyFix': {
+          if (msg.payload && msg.payload.diff) {
+            vscode.env.clipboard.writeText(msg.payload.diff);
+            this.sendWarning('Fix copied to clipboard! ✨');
+          }
+          break;
+        }
+        case 'clearHistory':
+          vscode.commands.executeCommand('terminalBuddy.clearHistory');
+          break;
+        case 'getVault':
+          this.sendVaultInfo();
+          break;
+        case 'addVaultKey':
+          await this.keyVault.addKey(data.payload.name, data.payload.envVar);
+          this.sendVaultInfo();
+          break;
+        case 'updateVaultKey':
+          await this.keyVault.setKey(data.payload.id, data.payload.value);
+          this.sendVaultInfo();
+          break;
+        case 'deleteVaultKey':
+          await this.keyVault.deleteKey(data.payload);
+          this.sendVaultInfo();
+          break;
+        case 'injectVaultKey':
+          vscode.commands.executeCommand('terminalBuddy.injectVaultKey', data.payload);
+          break;
+        case 'setApiKey': {
+          vscode.commands.executeCommand('terminalBuddy.setApiKey');
+          break;
+        }
+        case 'handleAIAction': {
+          if (msg.payload === 'switchToGemini') {
+            const config = vscode.workspace.getConfiguration('terminalBuddy');
+            config.update('aiProvider', 'gemini', vscode.ConfigurationTarget.Global);
+            this.sendAiInfo(); // Refresh UI instantly
+            this.sendWarning('Switched to Gemini! Try chatting again. ✨');
+          }
+          break;
+        }
+        case 'updateSetting': {
+          if (msg.payload && msg.payload.key) {
+            const key = msg.payload.key;
+            const value = msg.payload.value;
+            const config = vscode.workspace.getConfiguration('terminalBuddy');
+            const targetKey = key === 'endpoint' ? 'customEndpoint' : key;
+            config.update(targetKey, value, vscode.ConfigurationTarget.Global);
+          }
+          break;
+        }
+        case 'updateProviderKey': {
+          if (msg.payload && msg.payload.provider && msg.payload.key) {
+            this.aiClient.setApiKey(msg.payload.provider, msg.payload.key);
+          }
+          break;
+        }
+        case 'updateApiKey': {
+          if (msg.payload) {
+            const currentProvider = vscode.workspace.getConfiguration('terminalBuddy').get<AIProviderType>('aiProvider', 'gemini');
+            this.aiClient.setApiKey(currentProvider, msg.payload as string);
+          }
+          break;
+        }
       }
     } catch (err) {
       console.error('[Terminal Buddy] Message handler crash:', err);
@@ -400,9 +584,19 @@ export class PanelProvider implements vscode.WebviewViewProvider {
     this.post({ type: 'updateActiveCommands', payload: list });
   }
 
+  public async sendUsage(): Promise<void> {
+    const usage = await this.aiClient.getUsageSummary();
+    this.post({ type: 'updateUsage', payload: usage });
+  }
+
+  public async sendVaultInfo(): Promise<void> {
+    const keys = await this.keyVault.listKeys();
+    this.post({ type: 'updateVault', payload: keys });
+  }
+
   private getHtml(webview: vscode.Webview): string {
     const nonce = crypto.randomBytes(16).toString('hex');
-    const csp = `default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; font-src ${webview.cspSource}; script-src 'nonce-${nonce}' ${webview.cspSource} 'unsafe-eval'; img-src ${webview.cspSource} https: data:;`;
+    const csp = `default-src 'none'; style-src ${webview.cspSource} 'nonce-${nonce}'; font-src ${webview.cspSource}; script-src 'nonce-${nonce}' ${webview.cspSource} 'unsafe-eval'; img-src ${webview.cspSource} https: data:;`;
     
     const template = `<!DOCTYPE html>
 <html lang="en">
@@ -410,7 +604,7 @@ export class PanelProvider implements vscode.WebviewViewProvider {
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta http-equiv="Content-Security-Policy" content="{{CSP}}">
-  <style>{{CSS}}</style>
+  <style nonce="{{NONCE}}">{{CSS}}</style>
 </head>
 <body id="buddy-body">
   {{CONTENT}}
@@ -418,12 +612,13 @@ export class PanelProvider implements vscode.WebviewViewProvider {
 </body>
 </html>`;
 
-    return template
-      .replace('{{CSP}}', () => csp)
-      .replace('{{CSS}}', () => PANEL_CSS)
-      .replace('{{CONTENT}}', () => getPanelContent())
-      .replace('{{NONCE}}', () => nonce)
-      .replace('{{JS}}', () => PANEL_JS);
+    // Use a custom replacement loop to avoid String.replace's '$' parsing issues
+    let html = template;
+    html = html.split('{{CSP}}').join(csp);
+    html = html.split('{{NONCE}}').join(nonce);
+    html = html.split('{{CSS}}').join(PANEL_CSS);
+    html = html.split('{{CONTENT}}').join(getPanelContent());
+    html = html.split('{{JS}}').join(PANEL_JS);
+    return html;
   }
-
 }

@@ -1,5 +1,19 @@
 # Change Log
 
+## [0.4.1] — 2026-04-06
+
+### Added
+- **Premium Settings UI**: Redesigned the settings panel with a sleek, card-based layout and animated switch toggles.
+- **Grouped Packages**: Refactored the `Pkgs` tab to group dependencies by their source directory (e.g., Root, src/backend) with type-specific icons (📦, 🐍, ⚙️).
+- **Aesthetic Refinement**: Replaced standard checkboxes with custom modern switches and added descriptive high-quality icons across all tabs.
+
+### Fixed
+- **RuleEngine Robustness**: Added ANSI escape sequence stripping to ensure reliable matching of terminal output.
+- **RuleEngine Logic**: Refined the detection loop to prevent proactive rules from blocking literal error matches.
+- **Integration Reliability**: Corrected proposed API flag syntax in `runTest.ts` to enable `terminalDataWriteEvent` during testing.
+- **Activation Race Condition**: Fixed a test failure by ensuring the extension is fully activated before querying registered commands.
+- **Security**: Conducted a data privacy audit and verified `SecretStorage` usage for keys.
+
 ## [0.0.1] — Unreleased
 
 ### Added

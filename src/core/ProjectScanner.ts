@@ -15,7 +15,7 @@ export class ProjectScanner {
   private hasScanned = false;
 
   async scan(force = false): Promise<void> {
-    if (this.hasScanned && !force) { return; }
+    if (this.hasScanned && !force && this.map.fileTree) { return; }
     
     const folders = vscode.workspace.workspaceFolders;
     if (!folders || folders.length === 0) {

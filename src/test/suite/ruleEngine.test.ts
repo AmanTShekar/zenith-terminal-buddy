@@ -1,5 +1,5 @@
 import * as assert from 'assert';
-import { suite, test } from 'mocha';
+// Explicit mocha imports removed to allow VS Code test runner to provide globals
 import { RuleEngine } from '../../core/RuleEngine';
 
 suite('RuleEngine Unit Test Suite', () => {

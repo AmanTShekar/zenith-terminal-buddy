@@ -1,6 +1,6 @@
 import * as assert from 'assert';
 import * as vscode from 'vscode';
-import { suite, test } from 'mocha';
+// Explicit mocha imports removed to allow VS Code test runner to provide globals
 
 suite('Extension Test Suite', () => {
 	vscode.window.showInformationMessage('Start all tests.');
@@ -23,13 +23,20 @@ suite('Extension Test Suite', () => {
     });
 
     test('All commands should be registered', async () => {
+        const ext = vscode.extensions.getExtension('terminal-buddy.terminal-buddy');
+        if (ext && !ext.isActive) {
+            await ext.activate();
+        }
         const commands = await vscode.commands.getCommands(true);
         const expectedCommands = [
             'terminalBuddy.openPanel',
             'terminalBuddy.analyzeTerminal',
             'terminalBuddy.explainError',
             'terminalBuddy.setApiKey',
-            'terminalBuddy.clearHistory'
+            'terminalBuddy.clearHistory',
+            'terminalBuddy.togglePet',
+            'terminalBuddy.runExecutable',
+            'terminalBuddy.moveToDirectory'
         ];
         
         for (const cmd of expectedCommands) {

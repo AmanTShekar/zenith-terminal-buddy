@@ -2,7 +2,7 @@
   "name": "terminal-buddy",
   "displayName": "Terminal Buddy",
   "description": "Your friendly terminal companion — explains errors, suggests commands, tracks history, helps with git, and has a pet.",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "publisher": "terminal-buddy",
   "enabledApiProposals": [
     "terminalDataWriteEvent"
@@ -26,11 +26,7 @@
     "pet",
     "git"
   ],
-  "activationEvents": [
-    "onView:terminalBuddy.panel",
-    "onCommand:terminalBuddy.openPanel",
-    "onStartupFinished"
-  ],
+  "activationEvents": [],
   "main": "./dist/extension.js",
   "contributes": {
     "commands": [
@@ -49,111 +45,128 @@
       {
         "command": "terminalBuddy.togglePet",
         "title": "Terminal Buddy: Toggle Pet Mode"
+      },
+      {
+        "command": "terminalBuddy.setProviderApiKey",
+        "title": "Terminal Buddy: Set Provider API Key"
+      },
+      {
+        "command": "terminalBuddy.explainError",
+        "title": "Terminal Buddy: Explain Error"
+      },
+      {
+        "command": "terminalBuddy.analyzeTerminal",
+        "title": "Terminal Buddy: Analyze Terminal"
+      },
+      {
+        "command": "terminalBuddy.runExecutable",
+        "title": "Terminal Buddy: Run Executable"
+      },
+      {
+        "command": "terminalBuddy.moveToDirectory",
+        "title": "Terminal Buddy: Move to Directory"
       }
     ],
     "configuration": {
       "title": "Terminal Buddy",
       "properties": {
+        "terminalBuddy.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "[Main] Enable or disable all Terminal Buddy features."
+        },
         "terminalBuddy.petEnabled": {
           "type": "boolean",
           "default": true,
-          "description": "Show pet companion in the panel"
+          "description": "[Pet] Show your terminal companion."
         },
         "terminalBuddy.petType": {
           "type": "string",
           "default": "cat",
-          "enum": [
-            "cat",
-            "dog",
-            "robot",
-            "ghost"
-          ],
+          "enum": ["cat", "dog", "robot", "ghost"],
           "enumDescriptions": [
             "A friendly cat 🐱",
             "A loyal dog 🐶",
             "A helpful robot 🤖",
             "A silly ghost 👻"
           ],
-          "description": "Choose your pet companion"
+          "description": "[Pet] Choose which animal or friend follows you."
         },
         "terminalBuddy.petName": {
           "type": "string",
           "default": "Buddy",
-          "description": "Name your pet companion"
+          "description": "[Pet] Give your companion a name."
         },
         "terminalBuddy.aiEnabled": {
           "type": "boolean",
           "default": false,
-          "description": "Enable AI-powered error explanations (requires API key)"
+          "description": "[AI] Enable smart error explanations (requires an API key)."
         },
         "terminalBuddy.aiProvider": {
           "type": "string",
           "default": "gemini",
-          "enum": [
-            "gemini",
-            "openai",
-            "claude",
-            "groq"
-          ],
+          "enum": ["gemini", "openai", "claude", "groq", "ollama", "custom"],
           "enumDescriptions": [
-            "Google Gemini — free at aistudio.google.com",
-            "OpenAI GPT — requires paid API key from platform.openai.com",
-            "Anthropic Claude — requires paid API key from console.anthropic.com",
-            "Groq — free tier at console.groq.com"
+            "Gemini (Google) - High performance, free tier available.",
+            "OpenAI (GPT-4o) - Requires a paid API key.",
+            "Claude (Anthropic) - Excellent reasoning, requires API key.",
+            "Groq - Ultra-fast, free tier available.",
+            "Ollama - Run models locally on your own machine (No API key needed).",
+            "Custom - Use any OpenAI-compatible server (LM Studio, etc.)."
           ],
-          "description": "Choose your AI provider for error explanations"
+          "description": "[AI] Choose which AI service should help you."
         },
-        "terminalBuddy.apiKey": {
+        "terminalBuddy.customEndpoint": {
           "type": "string",
-          "default": "",
-          "description": "AI API key (Gemini, OpenAI, Claude, or Groq)."
+          "default": "http://localhost:11434/v1/chat/completions",
+          "description": "[AI] URL for Ollama or Custom AI providers."
         },
         "terminalBuddy.selectedModel": {
           "type": "string",
           "default": "",
-          "description": "Specific model name to use (e.g., 'gemini-1.5-pro'). Leave empty to auto-detect."
+          "description": "[AI] Specific model to use (e.g. 'gemini-1.5-pro'). Leave blank for auto."
         },
         "terminalBuddy.warnOnMainPush": {
           "type": "boolean",
           "default": true,
-          "description": "Show a warning before pushing to main/master branch"
+          "description": "[Safety] Warn when pushing to main/master branches."
         },
         "terminalBuddy.enableTerminalSafety": {
           "type": "boolean",
           "default": true,
-          "description": "Enable real-time auditing of terminal commands to prevent accidental destruction."
+          "description": "[Safety] Check terminal commands for accidental destruction."
         },
         "terminalBuddy.enableInterception": {
           "type": "boolean",
           "default": true,
-          "description": "Automatically intercept and halt dangerous commands until confirmed."
-        },
-        "terminalBuddy.semanticHistorySearch": {
-          "type": "boolean",
-          "default": true,
-          "description": "Use AI to assist in searching through command history."
-        },
-        "terminalBuddy.showExplorer": {
-          "type": "boolean",
-          "default": true,
-          "description": "Show the Smart Navigator/Explorer in the panel."
-        },
-        "terminalBuddy.aiCooldownMs": {
-          "type": "number",
-          "default": 4000,
-          "description": "Cooldown between AI requests (ms) to stay under RPM/RPD limits (4000ms = ~15 RPM)."
-        },
-        "terminalBuddy.maxHistoryItems": {
-          "type": "number",
-          "default": 500,
-          "minimum": 50,
-          "maximum": 2000,
-          "description": "Maximum number of command history entries to store"
+          "description": "[Safety] Pause dangerous commands until you approve them."
         },
         "terminalBuddy.scanAllPorts": {
           "type": "boolean",
           "default": false,
-          "description": "If enabled, scans all active network ports. May impact performance."
+          "description": "[System] Monitor all active network ports (may impact performance)."
+        },
+        "terminalBuddy.enableVault": {
+          "type": "boolean",
+          "default": true,
+          "description": "[Experimental] Enable the Terminal Vault for secret management."
+        },
+        "terminalBuddy.autoInjectEnvVars": {
+          "type": "boolean",
+          "default": true,
+          "description": "[Experimental] Automatically inject vault secrets into new terminal sessions."
+        },
+        "terminalBuddy.enableAuthDetection": {
+          "type": "boolean",
+          "default": true,
+          "description": "[Experimental] Proactively detect and prompt to inject secrets in the terminal."
+        },
+        "terminalBuddy.maxHistoryItems": {
+          "type": "number",
+          "default": 300,
+          "minimum": 50,
+          "maximum": 1000,
+          "description": "[System] Number of command history logs to keep."
         }
       }
     },

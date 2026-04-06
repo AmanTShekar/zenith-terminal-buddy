@@ -246,8 +246,12 @@ export class GitHelper {
         const MAX_PATH_DEPTH = 8;
         const effectiveParts = parts.slice(0, MAX_PATH_DEPTH);
 
+        let skipPart = false;
+        const SKIP_DIRS = ['.git', 'node_modules', 'dist', 'build', '.next', 'venv', '.venv', '__pycache__', 'target'];
+
         for (let i = 0; i < effectiveParts.length; i++) {
           const part = effectiveParts[i];
+          if (SKIP_DIRS.includes(part)) { skipPart = true; break; }
           
           if (!curr.children || typeof curr.children !== 'object') {
             break; 
