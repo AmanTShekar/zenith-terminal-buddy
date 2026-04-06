@@ -8,6 +8,15 @@ terminal-buddy-*.vsix
 vsc-extension-quickstart.md
 esbuild.config.js
 node_modules/**
+git_release.js
+git_release.js.map
 !dist/**
 !dist/extension.js
 !dist/extension.js.map
+!package.json
+!README.md
+!CHANGELOG.md
+!LICENSE
+!assets/**
+!images/**
+!icons/**
