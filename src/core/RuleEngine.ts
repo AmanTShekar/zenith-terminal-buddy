@@ -8,6 +8,12 @@ interface Rule {
   result: (cmd: string, output: string, cwd?: string) => Promise<ErrorExplanation>;
 }
 
+const ANSI_RE = /[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=>~]/g;
+
+function stripAnsi(str: string): string {
+  return str.replace(ANSI_RE, '');
+}
+
 function extractModuleName(output: string, pattern: RegExp): string {
   const match = output.match(pattern);
   return match?.[1] ?? 'unknown';
@@ -423,13 +429,15 @@ const rules: Rule[] = [
 
 
 export class RuleEngine {
-  async check(cmd: string, output: string, exitCode: number, cwd?: string): Promise<ErrorExplanation | null> {
+  async check(cmd: string, rawOutput: string, exitCode: number, cwd?: string): Promise<ErrorExplanation | null> {
     if (exitCode === 0) { return null; }
+    const output = stripAnsi(rawOutput);
 
     for (const rule of rules) {
       try {
         if (rule.match(cmd, output, exitCode)) {
-          return await rule.result(cmd, output, cwd);
+          const result = await rule.result(cmd, output, cwd);
+          if (result) { return result; }
         }
       } catch {
         continue;

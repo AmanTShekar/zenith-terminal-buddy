@@ -13,10 +13,15 @@ export function run(): Promise<void> {
 
 	return new Promise(async (c, e) => {
 		try {
-			const files = await glob('**/**.test.js', { cwd: testsRoot });
+			const files = await glob('**/*.test.js', { cwd: testsRoot });
+			console.log(`[Test Loader] Found ${files.length} test files in ${testsRoot}`);
 
 			// Add files to the test suite
-			files.forEach(f => mocha.addFile(path.resolve(testsRoot, f)));
+			files.forEach(f => {
+				const fullPath = path.resolve(testsRoot, f);
+				console.log(`[Test Loader] Adding test: ${fullPath}`);
+				mocha.addFile(fullPath);
+			});
 
 			// Run the mocha test
 			mocha.run((failures: number) => {
