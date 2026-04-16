@@ -16,7 +16,7 @@ async function main() {
 			extensionDevelopmentPath, 
 			extensionTestsPath,
 			launchArgs: [
-				'--enable-proposed-api', 'terminal-buddy.terminal-buddy'
+				'--enable-proposed-api', 'Zenithdev.terminal-buddy'
 			]
 		});
 	} catch (err) {

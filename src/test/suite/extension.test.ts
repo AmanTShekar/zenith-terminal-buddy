@@ -11,11 +11,11 @@ suite('Extension Test Suite', () => {
 	});
 
     test('Extension should be present', () => {
-		assert.ok(vscode.extensions.getExtension('terminal-buddy.terminal-buddy'));
+		assert.ok(vscode.extensions.getExtension('Zenithdev.terminal-buddy'));
 	});
 
     test('Extension should activate', async () => {
-        const ext = vscode.extensions.getExtension('terminal-buddy.terminal-buddy');
+        const ext = vscode.extensions.getExtension('Zenithdev.terminal-buddy');
         if (ext) {
             await ext.activate();
             assert.strictEqual(ext.isActive, true);
@@ -23,7 +23,7 @@ suite('Extension Test Suite', () => {
     });
 
     test('All commands should be registered', async () => {
-        const ext = vscode.extensions.getExtension('terminal-buddy.terminal-buddy');
+        const ext = vscode.extensions.getExtension('Zenithdev.terminal-buddy');
         if (ext && !ext.isActive) {
             await ext.activate();
         }
