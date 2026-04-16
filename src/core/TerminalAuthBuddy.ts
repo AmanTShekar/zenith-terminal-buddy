@@ -38,7 +38,10 @@ export class TerminalAuthBuddy implements vscode.Disposable {
       { pattern: /Enter Hugging Face token: ?$/i, id: 'hf' },
       { pattern: /GitHub [Pp]ersonal [Aa]ccess [Tt]oken: ?$/i, id: 'gh' },
       { pattern: /AWS Access Key ID: ?$/, id: 'aws_id' },
-      { pattern: /AWS Secret Access Key: ?$/, id: 'aws_secret' }
+      { pattern: /AWS Secret Access Key: ?$/, id: 'aws_secret' },
+      { pattern: /Enter Supabase [Kk]ey: ?$/i, id: 'supabase' },
+      { pattern: /Enter Fire[Bb]ase [Tt]oken: ?$/i, id: 'firebase' },
+      { pattern: /Anthropic API [Kk]ey: ?$/i, id: 'anthropic' }
     ];
 
     for (const p of promptPatterns) {
@@ -86,15 +89,21 @@ export class TerminalAuthBuddy implements vscode.Disposable {
     }
   }
 
+  public async handleExplanation(terminal: vscode.Terminal, explanation: any) {
+    if (explanation.missingKeyId) {
+       await this.handleDetectedPrompt(terminal, explanation.missingKeyId);
+    }
+  }
+
   public async injectKey(terminal: vscode.Terminal, keyId: string) {
     const val = await this.keyVault.getKey(keyId);
     if (val) {
-      // Send raw text to terminal. We don't add \n because the user might need to press enter themselves
-      // or the UI might handle it. But usually for tokens, a newline is expected.
+      // Send raw text to terminal.
+      // 🛡️ Security: The KEY value is sent to terminal, but never to the AI context.
       terminal.sendText(val, true);
-      vscode.window.showInformationMessage(`✅ ${keyId.toUpperCase()} injected. ✨`);
+      vscode.window.showInformationMessage(`✅ ${keyId.toUpperCase()} injected securely from Vault. ✨`);
     } else {
-      vscode.window.showErrorMessage(`❌ Key not found in vault.`);
+      vscode.window.showErrorMessage(`❌ Key "${keyId}" not found in vault.`);
     }
   }
 

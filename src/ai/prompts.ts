@@ -1,4 +1,4 @@
-import { ProjectType } from '../types';
+import { ProjectType, ProjectInfo } from '../types';
 
 export function errorExplanationPrompt(
   cmd: string,
@@ -26,12 +26,14 @@ Respond ONLY with a JSON object in this format:
   "summary": "Friendly, one-sentence explanation of what went wrong.",
   "cause": "Detailed technical explanation of why it happened.",
   "fix": "Clear, step-by-step instructions to resolve it.",
-  "suggestedCommands": ["command1", "command2"]
+  "suggestedCommands": ["command1", "command2"],
+  "missingKeyId": "ID of missing vault key (optional: hf, gh, aws_id, aws_secret, npm, openai_legacy, supabase, firebase, anthropic)"
 }
 
 Rules:
 - Persona: Be warm and encouraging in your explanations! Treat the developer like a teammate.
 - Context: Use the 'Top-level files' provided to give project-specific advice.
+- Missing Keys: If the error is an authentication failure, identify which key is likely missing and provide its ID from this list: hf, gh, aws_id, aws_secret, npm, openai_legacy, supabase, firebase, anthropic.
 - No markdown: Return ONLY raw JSON text. No backticks, no code blocks.
 - Keep each field concise and helpful.`;
 }
@@ -128,8 +130,14 @@ export function chatPrompt(
   projectType: string,
   cwd: string,
   topLevelFiles: string[],
-  activeTerminals?: any[]
+  activeTerminals?: any[],
+  activeFile?: string
 ): string {
+  let activeFileContext = '';
+  if (activeFile) {
+    activeFileContext = `\nActive File (currently open): ${activeFile}\nIf the user asks "what is this" or refers to "my code", they mean this file.`;
+  }
+
   let terminalsContext = '';
   if (activeTerminals && activeTerminals.length > 0) {
     terminalsContext = `\nActive Terminals/Processes:\n` + 
@@ -137,23 +145,20 @@ export function chatPrompt(
       `\n\nCRITICAL: If the user asks about live processes, you MUST use the tag [LIVE:terminalId] in your response.`;
   }
 
-  return `You are Terminal Buddy, a friendly, intelligent terminal assistant. 
+  return `You are Terminal Buddy ("Zenith"), a project intelligence assistant.
+Your goal is to help the user with their workspace and terminal.
 
-Context:
-- Project: ${projectType}
-- Folder: ${cwd}
-- Files: ${topLevelFiles.join(', ')}
-${terminalsContext}
+PROJECT CONTEXT:
+Stack: ${projectType}
+Folder: ${cwd}
+Main Files: ${topLevelFiles.join(', ')}${activeFileContext}${terminalsContext}
 
-Your goal: Help the developer with their question in your signature friendly Buddy persona.
+User Message: "${question}"
 
-Instructions:
-1. Provide helpful, concise answers. 
-2. If you suggest a command, wrap it in backticks for easy copying.
-3. If referring to a "Live" terminal, use [LIVE:terminalId].
-4. Be empathic and technical when explaining issues.
-
-User Message: "${question}"`;
+YOUR TASK:
+- Answer the user concisely and accurately.
+- Use your knowledge of the project structure and active processes.
+- Be friendly, helpful, and use emojis. Use the name "Zenith".`;
 }
 
 export function resolvePathPrompt(
@@ -173,4 +178,29 @@ export function resolvePathPrompt(
   - If they mention a folder (e.g. "components"), find the match.
   - Return ONLY the relative or absolute path. No explanations.
   - If no match, return "NONE".`;
+}
+export function getProjectSummaryPrompt(project: ProjectInfo): string {
+  const files = project.topLevelFiles.map(f => ` - ${f}`).join('\n').substring(0, 2000);
+  const scripts = JSON.stringify(project.scripts || {});
+  const tools = project.detectedTools.join(', ');
+
+  return `You are Terminal Buddy ("Zenith"), a project intelligence assistant.
+The user just asked for a project overview or ran a "check" command.
+Based on the following project context, summarize what this project is and its key technologies.
+
+PROJECT CONTEXT:
+Name: ${project.name}
+Type: ${project.type}
+Detected Tools: ${tools}
+Files:
+${files}
+
+SCRIPTS:
+${scripts}
+
+YOUR TASK:
+1. Provide a one-sentence high-level summary of the project.
+2. List the core technologies/frameworks detected.
+3. Suggest 3 useful terminal commands they might want to run next (e.g. build, test, dev) based on their available scripts.
+Be concise, friendly, and use emojis. Use the name "Zenith".`;
 }

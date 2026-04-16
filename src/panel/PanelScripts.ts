@@ -50,10 +50,15 @@ export const PANEL_JS = `
         case 'updateWorkspaceMap': renderExplorer(msg.payload); break;
         case 'updateUsage': renderUsage(msg.payload); break;
         case 'updateVault': renderVault(msg.payload || []); break;
+        case 'updateJira': renderJira(msg.payload); break;
         case 'aiThinking': showThinking(); break;
         case 'aiStreamChunk': handleStream(msg.payload); break;
         case 'aiStreamDone': finalizeStream(); break;
+        case 'aiExplanation': renderExplanation(msg.payload); break;
+        case 'agentThought': showThought(msg.payload); break;
         case 'warning': showWarn(msg.payload); break;
+        case 'showSafetyOverlay': showSafety(msg.payload); break;
+        case 'hideSafetyOverlay': hideSafety(); break;
       }
     } catch (err) { console.error('[Terminal Buddy] Router Error:', err); }
   });
@@ -62,15 +67,25 @@ export const PANEL_JS = `
     vsc.postMessage({ type: type, payload: id, extra: extra });
   }
 
-  // ─── Event Listeners ───────────────────────────────────────────────────
+  // --- Event Listeners ---------------------------------------------------
 
   document.addEventListener('click', function(e) {
     var t = e.target;
     while (t && t !== document.body) {
+      if (t.id === 's-run') { vsc.postMessage({ type: 'runDangerousCommand' }); return; }
+      if (t.id === 's-cancel') { hideSafety(); return; }
+      
+      if (t.id === 'zenith-center-btn') {
+        vsc.postMessage({ type: 'openZenithCenter' });
+        return;
+      }
+      
       var act = t.getAttribute('data-action');
       if (act) {
         if (act === 'tab') {
           switchTab(t);
+        } else if (act === 'openZenithCenter') {
+          vsc.postMessage({ type: 'openZenithCenter' });
         } else if (act === 'selectProvider') {
           var pid = t.getAttribute('data-id');
           vsc.postMessage({ type: 'updateSetting', payload: { key: 'aiProvider', value: pid } });
@@ -112,7 +127,6 @@ export const PANEL_JS = `
       } else if (inp.id.startsWith('setting-')) {
         var key = inp.id.replace('setting-', '');
         var val = inp.value.trim();
-        // Safeguard: Don't allow API keys in the endpoint field
         if (key === 'endpoint' && (val.startsWith('gsk_') || val.startsWith('sk-'))) {
            showWarn('Invalid Endpoint: Do not paste API keys here!');
            inp.value = '';
@@ -149,11 +163,7 @@ export const PANEL_JS = `
     if (c.endpoint) document.getElementById('setting-endpoint').value = c.endpoint;
 
     // New settings
-    if (c.aiEnabled !== undefined) document.getElementById('setting-aiEnabled').checked = c.aiEnabled;
-    if (c.enableInterception !== undefined) document.getElementById('setting-enableInterception').checked = c.enableInterception;
-    if (c.enableTerminalSafety !== undefined) document.getElementById('setting-enableTerminalSafety').checked = c.enableTerminalSafety;
-    if (c.warnOnMainPush !== undefined) document.getElementById('setting-warnOnMainPush').checked = c.warnOnMainPush;
-    if (c.scanAllPorts !== undefined) document.getElementById('setting-scanAllPorts').checked = c.scanAllPorts;
+    if (c.autoRunSuggestions !== undefined) document.getElementById('setting-autoRunSuggestions').checked = c.autoRunSuggestions;
     if (c.autoInjectEnvVars !== undefined) document.getElementById('setting-autoInjectEnvVars').checked = c.autoInjectEnvVars;
     if (c.enableAuthDetection !== undefined) document.getElementById('setting-enableAuthDetection').checked = c.enableAuthDetection;
 
@@ -215,7 +225,7 @@ export const PANEL_JS = `
   function updateAiStatus(info) {
     var dot = document.getElementById('ai-status-dot');
     var txt = document.getElementById('ai-status-text');
-    if (dot) dot.className = info.isOffline ? 'offline' : 'online';
+    if (dot) dot.style.background = info.isOffline ? 'var(--error)' : 'var(--success)';
     if (txt) txt.textContent = info.isOffline ? (info.reason || 'Offline') : (info.provider + ' Active');
   }
 
@@ -277,7 +287,7 @@ export const PANEL_JS = `
 
   function renderExplorer(map) {
     if (!map) return;
-    var rootName = map.rootPath ? map.rootPath.split(/[\\\/]/).pop() : 'Unknown';
+    var rootName = map.rootPath ? map.rootPath.split(/[\\\\\\/]/).pop() : 'Unknown';
     var h = '<div class="explorer-header">Workspace: ' + esc(rootName) + '</div>';
     
     if (map.fileTree) {
@@ -288,7 +298,7 @@ export const PANEL_JS = `
       h += '<div class="projects-section"><div class="section-title">Detected Projects</div>';
       map.projects.forEach(function(p) {
         h += '<div class="project-card" data-action="aiMoveDirectory" data-id="' + p.path + '">' +
-             '<div class="p-icon">' + (p.type === 'node' ? '🟢' : (p.type === 'python' ? '🐍' : '📂')) + '</div>' +
+             '<div class="p-icon">' + (p.type === 'node' ? '🟡' : (p.type === 'python' ? '🐍' : '📁')) + '</div>' +
              '<div class="p-info"><div class="p-name">' + esc(p.name) + '</div>' +
              '<div class="p-type">' + esc(p.type) + '</div></div></div>';
       });
@@ -369,7 +379,6 @@ export const PANEL_JS = `
     });
     safeSet('vault-list', h || '<div class="empty"><div class="empty-icon">🔐</div><div class="empty-text">Your vault is empty.</div></div>');
 
-    // Add listeners for dynamically created Save buttons
     document.querySelectorAll('[data-action="updateVaultKey"]').forEach(function(btn) {
       btn.onclick = function() {
         var id = btn.getAttribute('data-id');
@@ -424,7 +433,37 @@ export const PANEL_JS = `
     m.scrollTop = m.scrollHeight;
   }
 
-  function finalizeStream() { streamEl = null; }
+  function finalizeStream() { 
+    streamEl = null; 
+    var th = document.querySelector('.msg.thinking');
+    if (th) th.remove();
+  }
+
+  function renderExplanation(p) {
+    finalizeStream();
+    if (!p || !p.explanation) { return; }
+    var m = document.getElementById('chat-msgs');
+    if (!m) return;
+    
+    var expl = p.explanation;
+    // Handle both rich objects and fallback strings
+    var summary = typeof expl === 'string' ? expl : (expl.summary || 'No summary available.');
+    var cause = expl.cause ? '<div class="expl-cause"><b>Cause:</b> ' + expl.cause + '</div>' : '';
+    var fix = expl.fix ? '<div class="expl-fix"><b>Fix:</b> ' + expl.fix + '</div>' : '';
+
+    var d = document.createElement('div');
+    d.className = 'msg buddy explanation-rich';
+    d.innerHTML = '<div class="expl-header">Analysis: ' + esc(p.cmd) + '</div>' + 
+                  '<div class="expl-summary">' + summary + '</div>' +
+                  cause + fix;
+    m.appendChild(d);
+    m.scrollTop = m.scrollHeight;
+  }
+
+  function showThought(t) {
+    var th = document.querySelector('.msg.thinking');
+    if (th) th.textContent = t;
+  }
 
   function showWarn(msg) {
     var w = document.getElementById('warn-bar');
@@ -434,12 +473,26 @@ export const PANEL_JS = `
     setTimeout(function() { w.style.display = 'none'; }, 4000);
   }
 
-  var inp = document.getElementById('chat-input');
-  if (inp) {
-    inp.addEventListener('keydown', function(e) {
+  function showSafety(p) {
+    var o = document.getElementById('safety-overlay');
+    var cmd = document.getElementById('safety-cmd-preview');
+    if (o && cmd) {
+      cmd.textContent = p.command;
+      o.classList.add('show');
+    }
+  }
+
+  function hideSafety() {
+    var o = document.getElementById('safety-overlay');
+    if (o) o.classList.remove('show');
+  }
+
+  var chatInp = document.getElementById('chat-input');
+  if (chatInp) {
+    chatInp.addEventListener('keydown', function(e) {
       if (e.keyCode === 13 && !e.shiftKey) {
         e.preventDefault();
-        var v = inp.value.trim();
+        var v = chatInp.value.trim();
         if (!v) return;
         var m = document.getElementById('chat-msgs');
         var d = document.createElement('div');
@@ -447,22 +500,37 @@ export const PANEL_JS = `
         d.textContent = v;
         m.appendChild(d);
         vsc.postMessage({ type: 'askBuddy', payload: v });
-        inp.value = '';
+        chatInp.value = '';
         m.scrollTop = m.scrollHeight;
       }
     });
   }
 
-  var mv = document.getElementById('ai-mover-input');
-  if (mv) {
-    mv.addEventListener('keydown', function(e) {
+  var mvInp = document.getElementById('ai-mover-input');
+  if (mvInp) {
+    mvInp.addEventListener('keydown', function(e) {
       if (e.keyCode === 13) {
-        vsc.postMessage({ type: 'aiMoveDirectory', payload: mv.value.trim() });
-        mv.value = '';
+        vsc.postMessage({ type: 'aiMoveDirectory', payload: mvInp.value.trim() });
+        mvInp.value = '';
       }
     });
   }
 
   vsc.postMessage({ type: 'ready' });
+  function renderJira(issue) {
+    var area = document.getElementById('jira-active-ticket');
+    if (!area) return;
+    if (!issue) {
+      area.innerHTML = '<div class="empty-state">No active ticket detected.</div>';
+      return;
+    }
+    area.innerHTML = ' \
+      <div class="ticket-card" style="margin:0; border:none; background:transparent;"> \
+        <div class="t-key">' + esc(issue.key) + '</div> \
+        <div class="t-summary">' + esc(issue.summary) + '</div> \
+        <div class="t-status">' + esc(issue.status) + '</div> \
+        <div style="margin-top:10px;"><a href="' + esc(issue.url) + '" style="color:var(--accent); font-size:10px;">View in Jira</a></div> \
+      </div>';
+  }
 })();
 `;

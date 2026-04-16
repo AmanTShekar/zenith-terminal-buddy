@@ -42,7 +42,7 @@ body.tb-pet-off #pet {
 
 .hidden { display: none !important; }
 
-/* ── Header ──────────────────────────────────────────────────────────────── */
+/* ── Header ────────────────────────────────────────────────────────── */
 #hdr {
   padding: 12px 16px;
   background: var(--bg2);
@@ -69,7 +69,7 @@ body.tb-pet-off #pet {
 @keyframes pulse-border { 0% { border-color: var(--border); } 50% { border-color: var(--accent); } 100% { border-color: var(--border); } }
 @keyframes pulse-bg { from { opacity: 0.3; } to { opacity: 1; } }
 
-/* ── Pet Area ───────────────────────────────────────────────────────────── */
+/* ── Pet Area ───────────────────────────────────────────────────────── */
 #pet {
   padding: 12px 16px;
   background: linear-gradient(180deg, var(--bg2) 0%, var(--bg) 100%);
@@ -88,7 +88,7 @@ body.tb-pet-off #pet {
 #xp-track { height: 3px; background: var(--border); border-radius: 2px; overflow: hidden; }
 #xp-fill { height: 100%; background: var(--accent); box-shadow: 0 0 4px var(--accent); transition: width 0.5s ease; }
 
-/* ── Stats ──────────────────────────────────────────────────────────────── */
+/* ── Stats ─────────────────────────────────────────────────────────── */
 #stats-bar {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -102,7 +102,7 @@ body.tb-pet-off #pet {
 #st-ok .st-val { color: var(--success); }
 #st-err .st-val { color: var(--error); }
 
-/* ── Tabs ───────────────────────────────────────────────────────────────── */
+/* ── Tabs ──────────────────────────────────────────────────────────── */
 #tabs {
   display: flex;
   background: var(--bg2);
@@ -123,7 +123,7 @@ body.tb-pet-off #pet {
 .tab:hover { color: var(--fg); background: var(--glass); }
 .tab.active { color: var(--accent); border-bottom-color: var(--accent); background: var(--bg); }
 
-/* ── Panels ─────────────────────────────────────────────────────────────── */
+/* ── Panels ───────────────────────────────────────────────────────── */
 #panels { flex: 1; display: flex; flex-direction: column; min-height: 0; }
 .panel { display: none; flex: 1; flex-direction: column; min-height: 0; }
 .panel.active { display: flex; }
@@ -132,7 +132,7 @@ body.tb-pet-off #pet {
 .scroll::-webkit-scrollbar { width: 4px; }
 .scroll::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
 
-/* ── Chat ───────────────────────────────────────────────────────────────── */
+/* ── Chat ─────────────────────────────────────────────────────────── */
 #panel-chat { padding: 0; display: none; flex-direction: column; height: 100%; min-height: 0; }
 #panel-chat.active { display: flex; }
 #chat-msgs { flex: 1; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 10px; min-height: 0; overflow-anchor: none; }
@@ -205,7 +205,18 @@ body.tb-pet-off #pet {
   opacity: 0.8;
 }
 
-/* 🌳 Explorer & Git Tree Styles */
+.badge-caution {
+  font-size: 9px;
+  padding: 1px 4px;
+  background: var(--warn);
+  color: #000;
+  border-radius: 4px;
+  vertical-align: middle;
+  font-weight: bold;
+  margin-left: 5px;
+}
+
+/* 🌿 Explorer & Git Tree Styles */
 .explorer-header, .git-header {
   padding: 12px;
   background: var(--bg2);
@@ -374,7 +385,7 @@ body.tb-pet-off #pet {
 .cmd-btn:active { transform: translateY(0); }
 .cmd-btn .icon { font-size: 10px; opacity: 0.8; }
 
-/* ── Logs ───────────────────────────────────────────────────────────────── */
+/* ── Logs ─────────────────────────────────────────────────────────── */
 .log-entry {
   padding: 10px;
   background: var(--card);
@@ -407,7 +418,7 @@ body.tb-pet-off #pet {
 .filter-select { flex: 1; min-width: 120px; background: var(--card2); border: 1px solid var(--border); border-radius: 6px; padding: 6px 10px; color: var(--fg); font-size: 11px; outline: none; }
 .filter-select:hover { border-color: var(--fg-dim); }
 
-/* ── Suggestion Cards ───────────────────────────────────────────────────── */
+/* ── Suggestion Cards ───────────────────────────────────────────────── */
 .fix-suggestion-card {
   margin: 10px;
   background: var(--card2);
@@ -444,7 +455,7 @@ body.tb-pet-off #pet {
   transition: all 0.2s;
 }
 
-/* ── Git Tab ──────────────────────────────────────────────────────────────── */
+/* ── Git Tab ───────────────────────────────────────────────────────── */
 .branch-badge {
   display: inline-block;
   padding: 4px 10px;
@@ -552,7 +563,7 @@ body.tb-pet-off #pet {
 
 .terminal-selector { padding: 12px; border-top: 1px solid var(--border); background: var(--bg2); }
 
-/* ── Overlays ───────────────────────────────────────────────────────────── */
+/* ── Overlays ──────────────────────────────────────────────────────── */
 #warn-bar {
   display: none;
   position: absolute;
@@ -590,7 +601,7 @@ body.tb-pet-off #pet {
 #s-cancel { background: var(--border); color: var(--fg); }
 #s-run { background: var(--error); color: #fff; }
 
-/* ── Settings ────────────────────────────────────────────────────────────── */
+/* ── Settings ───────────────────────────────────────────────────────── */
 .settings-group {
   margin-bottom: 24px;
   background: var(--card);
@@ -610,7 +621,7 @@ body.tb-pet-off #pet {
   opacity: 0.8;
 }
 
-/* ── Grouped Packages ───────────────────────────────────────────────────── */
+/* ── Grouped Packages ─────────────────────────────────────────────── */
 .pkg-group-header {
   padding: 12px 16px 4px;
   font-size: 9px;
@@ -621,7 +632,7 @@ body.tb-pet-off #pet {
   opacity: 0.6;
 }
 
-/* ── Modern Settings ────────────────────────────────────────────────────── */
+/* ── Modern Settings ────────────────────────────────────────────────── */
 .settings-card {
   padding: 8px;
   background: var(--bg);
@@ -659,7 +670,7 @@ body.tb-pet-off #pet {
 
 .filter-select.modern { width: 100%; height: 38px; background: var(--bg2); border-radius: 8px; }
 
-/* ── Toggle Switch ──────────────────────────────────────────────────────── */
+/* ── Toggle Switch ───────────────────────────────────────────────────── */
 .switch {
   position: relative;
   display: inline-block;
@@ -696,7 +707,7 @@ input:checked + .slider:before { transform: translateX(16px); }
 .slider.round { border-radius: 20px; }
 .slider.round:before { border-radius: 50%; }
 
-/* ── Modern AI Manager ────────────────────────────────────────────────── */
+/* ── Modern AI Manager ───────────────────────────────────────────────── */
 .provider-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -769,7 +780,7 @@ input:checked + .slider:before { transform: translateX(16px); }
   background: var(--card);
 }
 
-/* ── Utility Classes (CSP Fixes) ───────────────────────────────────────── */
+/* ── Utility Classes (CSP Fixes) ────────────────────────────────────────── */
 .flex-row { display: flex; align-items: center; }
 .flex-between { display: flex; justify-content: space-between; align-items: center; }
 .flex-1 { flex: 1; min-width: 0; }
@@ -791,7 +802,7 @@ input:checked + .slider:before { transform: translateX(16px); }
 .footer-box { padding: 20px; text-align: center; opacity: 0.5; font-size: 10px; }
 .ai-expl-box { padding: 10px; }
 
-/* ── Usage Panel ────────────────────────────────────────────────────────── */
+/* ── Usage Panel ───────────────────────────────────────────────────── */
 .usage-summary-card {
   background: linear-gradient(135deg, var(--card) 0%, var(--bg2) 100%);
   border: 1px solid var(--border);
@@ -839,7 +850,7 @@ input:checked + .slider:before { transform: translateX(16px); }
 }
 .u-clear-btn:hover { background: rgba(255, 68, 68, 0.1); }
 
-/* ── Vault Panel ────────────────────────────────────────────────────────── */
+/* ── Vault Panel ───────────────────────────────────────────────────── */
 .vault-header { padding: 16px; border-bottom: 1px solid var(--border); margin-bottom: 16px; }
 .v-title { font-size: 18px; font-weight: 800; color: var(--accent); margin-bottom: 4px; }
 .vault-item { 

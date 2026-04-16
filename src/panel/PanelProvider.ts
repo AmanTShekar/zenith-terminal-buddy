@@ -15,6 +15,8 @@ import { EnvDiffChecker } from '../core/EnvDiffChecker';
 import { AgentProcedures } from '../ai/AgentProcedures';
 import { KeyVault } from '../utils/KeyVault';
 import { TerminalAuthBuddy } from '../core/TerminalAuthBuddy';
+import { JiraService } from '../core/JiraService';
+import { DashboardController } from './DashboardController';
 import { CommandEntry, WorkspaceMap, GitStatus, Suggestion, PetState, AIProviderType } from '../types';
 import { PANEL_CSS } from './PanelStyles';
 import { PANEL_JS } from './PanelScripts';
@@ -25,13 +27,16 @@ interface PanelMessage {
   payload?: any; 
 }
 
-export class PanelProvider implements vscode.WebviewViewProvider {
+export class PanelProvider implements vscode.WebviewViewProvider, vscode.Disposable {
   private view?: vscode.WebviewView;
   private initialStateSent = false;
   private isScanning = false;
   private isWebviewReady = false;
   private messageBuffer: PanelMessage[] = [];
   private agentProcedures: AgentProcedures;
+  private disposables: vscode.Disposable[] = [];
+  private jiraService?: JiraService;
+  private dashboardController?: DashboardController;
 
   constructor(
     private readonly extensionUri: vscode.Uri,
@@ -70,6 +75,14 @@ export class PanelProvider implements vscode.WebviewViewProvider {
     webviewView.webview.onDidReceiveMessage((msg: PanelMessage) => this.handleMessage(msg));
     webviewView.webview.html = this.getHtml(webviewView.webview);
 
+    // 🚀 Performance: Replace polling with event-based triggers where possible
+    const workspaceWatcher = vscode.workspace.createFileSystemWatcher('**/{.git,package.json,.env,.env.example}');
+    this.disposables.push(workspaceWatcher);
+
+    workspaceWatcher.onDidChange(uri => this.handleFileSystemChange(uri));
+    workspaceWatcher.onDidCreate(uri => this.handleFileSystemChange(uri));
+    workspaceWatcher.onDidDelete(uri => this.handleFileSystemChange(uri));
+
     // Listen for config changes to sync UI toggles instantly
     vscode.workspace.onDidChangeConfiguration(e => {
       if (e.affectsConfiguration('terminalBuddy')) {
@@ -82,6 +95,31 @@ export class PanelProvider implements vscode.WebviewViewProvider {
     if (!this.isScanning) {
       this.startBackgroundScans();
     }
+
+    // 🚀 Performance: Immediate terminal activity sync
+    this.disposables.push(this.terminalWatcher.onCommandStart(() => this.sendActiveCommands()));
+    this.disposables.push(this.terminalWatcher.onCommandFinished(() => {
+      this.sendLog(this.commandLogger.getAll());
+      this.sendActiveCommands();
+    }));
+    this.disposables.push(this.terminalWatcher.onBuddyTrigger((e) => this.handleBuddyTrigger(e)));
+    
+    // 🚀 Jira Sync
+    if (this.jiraService) {
+      this.disposables.push(this.jiraService.onActiveTicketChanged(async (key) => {
+        if (key) {
+          const details = await this.jiraService?.getTicketDetails(key);
+          this.post({ type: 'updateJira', payload: details });
+        } else {
+          this.post({ type: 'updateJira', payload: null });
+        }
+      }));
+    }
+  }
+
+  public setServices(jiraService: JiraService, dashboardController: DashboardController) {
+    this.jiraService = jiraService;
+    this.dashboardController = dashboardController;
   }
 
   public post(msg: PanelMessage): void {
@@ -92,15 +130,20 @@ export class PanelProvider implements vscode.WebviewViewProvider {
       return;
     }
 
-    // 🛡️ Stability: Sanitize payload to prevent DataCloneError or circular refs
-    let sanitizedMsg = msg;
-    try {
-      sanitizedMsg = JSON.parse(JSON.stringify(msg));
-    } catch (e) {
-      console.error('[Terminal Buddy] Failed to sanitize message:', msg.type, e);
+    // 🚀 Performance: Skip heavy sanitization for simple payloads
+    let payload = msg.payload;
+    const skipSanitize = ['aiThinking', 'aiStreamChunk', 'aiStreamDone', 'playSound', 'warning', 'terminalData'];
+    
+    if (payload && !skipSanitize.includes(msg.type)) {
+      try {
+        // Deep clone only for complex objects like Logs or File Tree
+        payload = JSON.parse(JSON.stringify(payload));
+      } catch (e) {
+        console.error('[Terminal Buddy] Sanitization error:', e);
+      }
     }
 
-    this.view.webview.postMessage(sanitizedMsg);
+    this.view.webview.postMessage({ type: msg.type, payload });
   }
 
   private flushBuffer(): void {
@@ -138,6 +181,46 @@ export class PanelProvider implements vscode.WebviewViewProvider {
     this.post({ type: 'updatePorts', payload: ports || [] }); 
   }
 
+  private async handleBuddyTrigger(e: { terminal: vscode.Terminal; cmd: string }): Promise<void> {
+    // 1. Ensure Panel is visible
+    if (!this.view) {
+      vscode.commands.executeCommand('terminalBuddy.focus');
+    } else {
+      this.view.show(true);
+    }
+
+    // 2. Start Thinking
+    this.post({ type: 'aiThinking' });
+    this.post({ type: 'agentThought', payload: 'Analyzing workspace state...' });
+
+    // 3. Get Project Info
+    const wsPath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!wsPath) {
+      this.post({ type: 'chatChunk', payload: "❌ I couldn't find an open workspace to analyze." });
+      this.post({ type: 'aiStreamDone' });
+      return;
+    }
+
+    const project = this.projectScanner.getCurrentProject(wsPath);
+    if (!project) {
+      this.post({ type: 'chatChunk', payload: "❌ I'm not sure what kind of project this is yet." });
+      this.post({ type: 'aiStreamDone' });
+      return;
+    }
+
+    // 4. Stream Summary
+    try {
+      this.post({ type: 'chatChunk', payload: '' }); // Reset stream UI
+      for await (const chunk of this.aiClient.summarizeProject(project)) {
+        this.post({ type: 'chatChunk', payload: chunk });
+      }
+    } catch (err: any) {
+      this.post({ type: 'chatChunk', payload: `❌ Error: ${err.message}` });
+    } finally {
+      this.post({ type: 'aiStreamDone' });
+    }
+  }
+
   public async sendAiInfo(): Promise<void> {
     const config = await this.aiClient.getApiKey();
     const tbConfig = vscode.workspace.getConfiguration('terminalBuddy');
@@ -168,6 +251,8 @@ export class PanelProvider implements vscode.WebviewViewProvider {
         petName: config.get<string>('petName', 'Buddy'),
         aiEnabled: config.get<boolean>('aiEnabled', false),
         aiProvider: config.get<string>('aiProvider', 'gemini'),
+        proactiveAi: config.get<boolean>('proactiveAi', false),
+        agentSyncEnabled: config.get<boolean>('agentSyncEnabled', false),
         endpoint: config.get<string>('customEndpoint', ''),
         warnOnMainPush: config.get('warnOnMainPush'),
         enableTerminalSafety: config.get<boolean>('enableTerminalSafety', true),
@@ -176,6 +261,7 @@ export class PanelProvider implements vscode.WebviewViewProvider {
         autoInjectEnvVars: config.get('autoInjectEnvVars'),
         enableVault: config.get('enableVault'),
         enableAuthDetection: config.get('enableAuthDetection'),
+        autoRunSuggestions: config.get<boolean>('autoRunSuggestions', false),
         keys: { }
       }
     });
@@ -232,10 +318,11 @@ export class PanelProvider implements vscode.WebviewViewProvider {
         const tree = await this.gitHelper.getDetailedTree(root).catch(() => null);
         const remoteUrl = await this.gitHelper.getRemoteUrl(root).catch(() => null);
         const guide = this.gitHelper.getGuide(git);
+        const suggestions = this.gitHelper.getSuggestions(git);
         this.sendGitStatus(git);
         this.post({ 
           type: 'updateGitTree', 
-          payload: { tree, remoteUrl, branch: git.branch, guide } 
+          payload: { tree, remoteUrl, branch: git.branch, guide, suggestions } 
         });
       } else {
         this.sendGitStatus(null);
@@ -293,27 +380,17 @@ export class PanelProvider implements vscode.WebviewViewProvider {
         this.sendPorts(enriched);
         this.sendActiveCommands();
         
-        if (vscode.workspace.workspaceFolders) {
-          const root = vscode.workspace.workspaceFolders[0].uri.fsPath;
-          const envDiff = EnvDiffChecker.check(root);
-          if (envDiff.hasExample && envDiff.hasLocal && envDiff.missingKeys.length > 0) {
-            const sample = envDiff.missingKeys.slice(0, 3).join(', ') + 
-                          (envDiff.missingKeys.length > 3 ? '...' : '');
-            this.sendWarning(`.env missing keys: ${sample}`);
-          }
-          await this.updateGit(root);
-          await this.scanExecutables();
-        }
+        // 🧪 Light: Only poll port stats. Git/Scripts are now event-driven.
       } catch (err) {
         console.error('[Terminal Buddy] Background scan error:', err);
       } finally {
         this.isScanning = false;
       }
-    }, 8000);
+    }, 5000); // 🚀 Performance: Reduced total lag for Live/Ports
 
     setInterval(() => {
       this.sendTerminalSelector();
-    }, 4000);
+    }, 3000); // ⚡ Even faster terminal name sync
   }
 
   private async scanExecutables(): Promise<void> {
@@ -328,7 +405,12 @@ export class PanelProvider implements vscode.WebviewViewProvider {
     const data = msg;
     try {
       switch (msg.type) {
-        case 'ready': {
+        case 'openZenithCenter':
+        if (this.dashboardController) {
+          this.dashboardController.show();
+        }
+        break;
+      case 'ready': {
           console.log('[Terminal Buddy] Webview READY signal received.');
           this.isWebviewReady = true;
           this.flushBuffer();
@@ -397,13 +479,21 @@ export class PanelProvider implements vscode.WebviewViewProvider {
           }
           break;
         case 'explainEntry': {
-          const entry = msg.payload as CommandEntry;
-          if (!entry) { break; }
+          const entryId = msg.payload as string;
+          if (!entryId) { break; }
           (async () => {
+            const entry = this.commandLogger.getById(entryId);
+            if (!entry) { 
+              this.sendWarning('Could not find command log entry.');
+              this.post({ type: 'aiStreamDone' });
+              return; 
+            }
+
             const configObj = vscode.workspace.getConfiguration('terminalBuddy');
             const isEnabled = configObj.get<boolean>('enabled', true);
             if (!isEnabled) {
                this.sendWarning('Terminal Buddy is currently disabled. Please enable it in settings to use AI analysis.');
+               this.post({ type: 'aiStreamDone' });
                return;
             }
 
@@ -412,17 +502,17 @@ export class PanelProvider implements vscode.WebviewViewProvider {
             this.post({ type: 'aiThinking' });
             try {
               if (hasKey) {
-                this.post({ type: 'agentThought', payload: 'Analyzing logs...' });
+                this.post({ type: 'agentThought', payload: 'Analyzing log entry...' });
                 const projectInfo = this.projectScanner.getCurrentProject(entry.cwd);
                 const explanation = await this.aiClient.explain(entry, projectInfo ?? undefined);
                 if (explanation) {
-                  this.post({ type: 'aiExplanation', payload: { id: entry.id, explanation: explanation } });
+                  this.post({ type: 'aiExplanation', payload: { id: entry.id, cmd: entry.cmd, explanation: explanation } });
                 } else {
-                  this.sendWarning("Buddy couldn't find a clear explanation for this command. Try re-running it or checking logs.");
+                  this.sendWarning("Buddy couldn't find a clear explanation for this command.");
                   this.post({ type: 'aiStreamDone' });
                 }
               } else {
-                this.sendWarning('AI is offline. Please configure your API key in the badge above.');
+                this.sendWarning('AI is offline. Please configure your API key.');
                 const ruleEx = await this.ruleEngine.check(entry.cmd, entry.errorOutput || '', entry.exitCode || 1, entry.cwd);
                 this.sendExplanation(ruleEx || {
                   summary: 'No local explanation found for this error.',
@@ -434,7 +524,7 @@ export class PanelProvider implements vscode.WebviewViewProvider {
               }
             } catch (err) {
               this.sendWarning(`AI Analysis failed: ${(err as Error).message}`);
-              this.post({ type: 'aiStreamDone' }); // Clear thinking state
+              this.post({ type: 'aiStreamDone' });
             }
           })();
           break;
@@ -448,9 +538,11 @@ export class PanelProvider implements vscode.WebviewViewProvider {
               const terminals = this.terminalWatcher.getAllTerminals();
               const projectStr = projectsMap.projects.map(p => `${p.name}(${p.type})`).join(', ') || 'none';
               const topFiles = projectsMap.projects[0]?.topLevelFiles || [];
+              const activeFile = vscode.window.activeTextEditor?.document.fileName;
+              const relativeActiveFile = activeFile ? vscode.workspace.asRelativePath(activeFile) : undefined;
               
               for await (const chunk of this.aiClient.chatStream(
-                msg.payload as string, projectStr, wsPath, topFiles, terminals
+                msg.payload as string, projectStr, wsPath, topFiles, terminals, relativeActiveFile
               )) {
                 this.post({ type: 'aiStreamChunk', payload: chunk });
               }
@@ -532,6 +624,12 @@ export class PanelProvider implements vscode.WebviewViewProvider {
         case 'injectVaultKey':
           vscode.commands.executeCommand('terminalBuddy.injectVaultKey', data.payload);
           break;
+        case 'toggleVaultAuto':
+          if (data.payload && data.payload.id) {
+            await this.keyVault.setAutoInject(data.payload.id, data.payload.enabled);
+            this.sendVaultInfo();
+          }
+          break;
         case 'setApiKey': {
           vscode.commands.executeCommand('terminalBuddy.setApiKey');
           break;
@@ -587,6 +685,26 @@ export class PanelProvider implements vscode.WebviewViewProvider {
   public async sendUsage(): Promise<void> {
     const usage = await this.aiClient.getUsageSummary();
     this.post({ type: 'updateUsage', payload: usage });
+  }
+
+  private fsChangeTimer: NodeJS.Timeout | null = null;
+  private handleFileSystemChange(uri: vscode.Uri): void {
+    if (this.fsChangeTimer) { clearTimeout(this.fsChangeTimer); }
+    this.fsChangeTimer = setTimeout(() => {
+      if (vscode.workspace.workspaceFolders) {
+        const root = vscode.workspace.workspaceFolders[0].uri.fsPath;
+        this.updateGit(root);
+        this.scanExecutables();
+        this.projectScanner.scan(true).then(() => {
+           this.sendWorkspaceMap(this.projectScanner.getMap());
+        });
+      }
+    }, 1000); // ⚡ Debounce 1s
+  }
+
+  public dispose(): void {
+    if (this.fsChangeTimer) { clearTimeout(this.fsChangeTimer); }
+    this.disposables.forEach(d => d.dispose());
   }
 
   public async sendVaultInfo(): Promise<void> {
