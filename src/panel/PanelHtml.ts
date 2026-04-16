@@ -8,6 +8,7 @@ export function getPanelContent(): string {
       <div id="ai-status-dot"></div>
       <div id="ai-status-text">AI Initializing...</div>
     </div>
+    <div id="zenith-center-btn" title="Open Zenith Command Center" style="cursor:pointer; font-size:16px;">🏢</div>
   </div>
 
   <div id="pet">
@@ -34,6 +35,7 @@ export function getPanelContent(): string {
     <div class="tab" data-action="tab" data-tab="live">Live</div>
     <div class="tab" data-action="tab" data-tab="explorer">Explorer</div>
     <div class="tab" data-action="tab" data-tab="ports">Ports</div>
+    <div class="tab" data-action="tab" data-tab="jira">Jira</div>
     <div class="tab" data-action="tab" data-tab="git">Git</div>
     <div class="tab" data-action="tab" data-tab="pkgs">Pkgs</div>
     <div class="tab" data-action="tab" data-tab="vault">Vault <span class="badge-exp">EXP</span></div>
@@ -99,6 +101,19 @@ export function getPanelContent(): string {
 
     <!-- Git Panel -->
     <div id="panel-git" class="panel">
+      <div id="git-status" class="scroll"></div>
+    </div>
+
+    <!-- Jira Panel -->
+    <div id="panel-jira" class="panel">
+      <div id="jira-active-ticket" class="jira-ticket-container">
+        <div class="empty-state">No active ticket detected.</div>
+      </div>
+      <div class="jira-quick-actions">
+         <button class="btn btn-ghost" data-action="openZenithCenter">Open Full Command Center</button>
+      </div>
+    </div>
+    <div id="panel-git" class="panel">
       <div id="git-content" class="scroll"></div>
     </div>
 
@@ -154,7 +169,7 @@ export function getPanelContent(): string {
             </div>
             <div class="provider-card" id="card-openai" data-action="selectProvider" data-id="openai">
               <div class="card-header">
-                <span class="p-icon">❄️</span>
+                <span class="p-icon">❤️</span>
                 <span class="p-name">OpenAI</span>
                 <span class="p-status" id="status-openai">Off</span>
               </div>
@@ -201,7 +216,7 @@ export function getPanelContent(): string {
             </div>
             <div class="provider-card" id="card-minimax" data-action="selectProvider" data-id="minimax">
               <div class="card-header">
-                <span class="p-icon">🏔️</span>
+                <span class="p-icon">🗻</span>
                 <span class="p-name">MiniMax</span>
                 <span class="p-status" id="status-minimax">Off</span>
               </div>
@@ -242,7 +257,17 @@ export function getPanelContent(): string {
             </div>
             <div class="settings-row-v2">
               <div class="s-v2-info">
-                <div class="s-v2-label">🔑 Auto-Inject Vault Keys <span class="badge-exp">BETA</span></div>
+                <div class="s-v2-label">⚡ Auto-Run Suggestions <span class="badge-caution">CAUTION</span></div>
+                <div class="sub-text-tiny">Automatically execute AI suggestions without confirmation. Use with care.</div>
+              </div>
+              <label class="switch">
+                <input type="checkbox" id="setting-autoRunSuggestions">
+                <span class="slider round"></span>
+              </label>
+            </div>
+            <div class="settings-row-v2">
+              <div class="s-v2-info">
+                <div class="s-v2-label">🔒 Auto-Inject Vault Keys <span class="badge-exp">BETA</span></div>
                 <div class="sub-text-tiny">Automatically push secrets into new terminals.</div>
               </div>
               <label class="switch">
@@ -252,7 +277,7 @@ export function getPanelContent(): string {
             </div>
             <div class="settings-row-v2">
               <div class="s-v2-info">
-                <div class="s-v2-label">🕵️ Auth Detection <span class="badge-exp">BETA</span></div>
+                <div class="s-v2-label">🕵️‍♂️ Auth Detection <span class="badge-exp">BETA</span></div>
                 <div class="sub-text-tiny">Intelligent detection for auth/token prompts.</div>
               </div>
               <label class="switch">
@@ -268,7 +293,7 @@ export function getPanelContent(): string {
           <div class="settings-card">
             <div class="settings-row-v2">
               <div class="s-v2-info">
-                <div class="s-v2-label">🦁 Enable Pet</div>
+                <div class="s-v2-label">🐱 Enable Pet</div>
                 <div class="sub-text-tiny">Show your companion on the dashboard.</div>
               </div>
               <label class="switch">
@@ -283,6 +308,7 @@ export function getPanelContent(): string {
                 <option value="dog">Dog 🐶</option>
                 <option value="robot">Robot 🤖</option>
                 <option value="ghost">Ghost 👻</option>
+                <option value="capy">Capybara 🐹</option>
               </select>
             </div>
             <div class="settings-row-v2 stack">
@@ -292,7 +318,7 @@ export function getPanelContent(): string {
           </div>
         </div>
 
-        <div class="footer-box">Terminal Buddy — v0.4.0-stable</div>
+        <div class="footer-box">Terminal Buddy — v0.4.1-stable</div>
       </div>
     </div>
   </div>

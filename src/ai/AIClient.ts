@@ -3,7 +3,12 @@ import {
   AIProviderType, AI_PROVIDERS, ErrorExplanation, CommandEntry, ProjectInfo,
   AI_TIMEOUT_MS, AI_CACHE_MAX,
 } from '../types';
-import { doubtClearingPrompt, errorExplanationPrompt, chatPrompt } from './prompts';
+import { 
+  errorExplanationPrompt, 
+  doubtClearingPrompt, 
+  chatPrompt,
+  getProjectSummaryPrompt 
+} from './prompts';
 import { redact as redactSensitiveInfo } from '../core/RedactionUtils';
 import { UsageTracker } from '../utils/UsageTracker';
 
@@ -696,6 +701,7 @@ export class AIClient {
   }
 
   public async clearUsageHistory() {
+    this.sessionHistory.delete('chat');
     return this.usageTracker.clearHistory();
   }
 
@@ -831,7 +837,14 @@ export class AIClient {
     }
   }
 
-  async *chatStream(question: string, projectType: string, cwd: string, files: string[], terminals: any[] = []): AsyncIterable<string> {
+  async *chatStream(
+    question: string, 
+    projectType: string, 
+    cwd: string, 
+    files: string[], 
+    terminals: any[] = [], 
+    activeFile?: string
+  ): AsyncIterable<string> {
     if (typeof fetch === 'undefined') {
       yield "❌ Error: 'fetch' is not available in this environment. Please update VS Code to the latest version.";
       return;
@@ -844,15 +857,56 @@ export class AIClient {
     }
 
     try {
-      const prompt = chatPrompt(question, projectType, cwd, files, terminals);
+      const prompt = chatPrompt(question, projectType, cwd, files, terminals, activeFile);
       const selectedModel = config.get<string>('selectedModel');
       const models = await this.fetchAvailableModels(auth.provider);
       const modelToUse = selectedModel || models[0];
 
-      const history = [{ role: 'user' as const, content: prompt }];
+      const wsId = 'chat';
+      const history = this.sessionHistory.get(wsId) || [];
+      const apiHistory = [...history, { role: 'user' as const, content: prompt }];
+      
       const caller = STREAM_CALLERS[auth.provider];
       const endpoint = config.get<string>('customEndpoint');
 
+      let fullResponse = '';
+      for await (const chunk of caller(auth.key, apiHistory, modelToUse, endpoint)) {
+        fullResponse += chunk;
+        yield chunk;
+      }
+      this.trackUsage(auth.provider, modelToUse, prompt, fullResponse);
+
+      // 🧠 Chat Memory: Store the SIMPLE question and response
+      history.push({ role: 'user', content: question });
+      history.push({ role: 'assistant', content: fullResponse });
+      if (history.length > 10) { 
+        history.splice(0, 2); 
+      }
+      this.sessionHistory.set(wsId, history);
+    } catch (err: any) {
+      const msg = err?.message || String(err);
+      console.error('[Terminal Buddy] Chat Stream Error:', err);
+      yield `❌ AI Error: ${msg}`;
+    }
+  }
+
+
+  async *summarizeProject(project: ProjectInfo): AsyncGenerator<string> {
+    const config = vscode.workspace.getConfiguration('terminalBuddy');
+    const provider = config.get<AIProviderType>('aiProvider', 'gemini');
+    const auth = await this.getApiKey(provider);
+    if (!auth) { yield 'AI is offline. Please configure your API key.'; return; }
+
+    try {
+      const prompt = getProjectSummaryPrompt(project);
+      const history = [{ role: 'user' as const, content: prompt }];
+      
+      const selectedModel = config.get<string>('selectedModel');
+      const models = await this.fetchAvailableModels(auth.provider);
+      const modelToUse = selectedModel || models[0];
+      const caller = STREAM_CALLERS[auth.provider];
+      const endpoint = config.get<string>('customEndpoint');
+      
       let fullResponse = '';
       for await (const chunk of caller(auth.key, history, modelToUse, endpoint)) {
         fullResponse += chunk;
@@ -860,9 +914,7 @@ export class AIClient {
       }
       this.trackUsage(auth.provider, modelToUse, prompt, fullResponse);
     } catch (err: any) {
-      const msg = err?.message || String(err);
-      console.error('[Terminal Buddy] Chat Stream Error:', err);
-      yield `❌ AI Error: ${msg}`;
+      yield `❌ AI Error: ${err?.message || String(err)}`;
     }
   }
 
@@ -891,6 +943,7 @@ export class AIClient {
         cause: json.cause || 'Unknown',
         fix: json.fix || 'No fix suggested',
         suggestedCommands: json.suggestedCommands || [],
+        missingKeyId: json.missingKeyId,
         fromCache: false,
         source: 'ai'
       };

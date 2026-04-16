@@ -3,8 +3,8 @@ import { PetState, PetType, PetMood, CommandEntry } from '../types';
 
 const STORAGE_KEY = 'terminalBuddy.petState';
 
-const LEVEL_THRESHOLDS = [0, 100, 300, 600, 1000];
-const MAX_LEVEL = 5;
+const LEVEL_THRESHOLDS = [0, 100, 300, 600, 1000, 1500, 2100, 2800, 3600, 4500];
+const MAX_LEVEL = 10;
 
 const PET_EMOJIS: Record<PetType, Record<PetMood, string>> = {
   cat: {
@@ -22,6 +22,10 @@ const PET_EMOJIS: Record<PetType, Record<PetMood, string>> = {
   ghost: {
     happy: '👻', worried: '😶‍🌫️', sleeping: '💤',
     excited: '🎃', scared: '💀', neutral: '👻',
+  },
+  dragon: {
+    happy: '🐲', worried: '😰', sleeping: '💤',
+    excited: '🔥', scared: '🛡️', neutral: '🐉',
   },
 };
 
@@ -50,8 +54,8 @@ export class PetManager implements vscode.Disposable {
         type: userType,
         name: userName,
         mood: 'sleeping',
-        xp: 0,
-        level: 1,
+        xp: userType === 'dragon' && userName === 'Zenith' ? 4500 : 0,
+        level: userType === 'dragon' && userName === 'Zenith' ? 10 : 1,
         errorsFixed: 0,
         lastActiveAt: Date.now(),
       };
@@ -62,8 +66,8 @@ export class PetManager implements vscode.Disposable {
         type: userType,
         name: userName,
         mood: 'excited', // new workspace = excited!
-        xp: 0,
-        level: 1,
+        xp: userType === 'dragon' && userName === 'Zenith' ? 4500 : 0,
+        level: userType === 'dragon' && userName === 'Zenith' ? 10 : 1,
         errorsFixed: 0,
         lastActiveAt: Date.now(),
       };
@@ -102,7 +106,9 @@ export class PetManager implements vscode.Disposable {
   // ── Event handlers (called from extension.ts) ──────────────────────────
 
   onCommandStart(cmd: string, isAgent: boolean = false): void {
-    if (!this.isEnabled() || isAgent) return;
+    if (!this.isEnabled() || isAgent) {
+      return;
+    }
     const config = vscode.workspace.getConfiguration('terminalBuddy');
     if (/npm\s+run|python|node|go\s+run/i.test(cmd)) {
       this.setTemporaryMood('excited', -1); // Indefinite excited (running) until finished
@@ -112,7 +118,9 @@ export class PetManager implements vscode.Disposable {
   }
 
   onCommand(entry: CommandEntry): void {
-    if (!this.isEnabled()) return;
+    if (!this.isEnabled()) {
+      return;
+    }
     // Clear indefinite "running" mood if set
     if (this.moodTimer === null && this.state.mood === 'excited') {
        this.state.mood = 'neutral';
@@ -152,7 +160,7 @@ export class PetManager implements vscode.Disposable {
 
     // Mood: OK → happy
     if (entry.status === 'ok') {
-      this.addXP(5);
+      this.addXP(10);
       this.setTemporaryMood('happy', 5000);
       return;
     }
@@ -163,7 +171,7 @@ export class PetManager implements vscode.Disposable {
   }
 
   onErrorExplained(): void {
-    this.addXP(5);
+    this.addXP(50);
     this.state.errorsFixed++;
     this.save();
   }

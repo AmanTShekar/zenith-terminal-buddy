@@ -13,6 +13,8 @@
 - **Integration Reliability**: Corrected proposed API flag syntax in `runTest.ts` to enable `terminalDataWriteEvent` during testing.
 - **Activation Race Condition**: Fixed a test failure by ensuring the extension is fully activated before querying registered commands.
 - **Security**: Conducted a data privacy audit and verified `SecretStorage` usage for keys.
+- **Dashboard Stability**: Fixed a bug where clicking log entries caused an indefinite "Thinking" hang; corrected the data lookup and added webview message handlers.
+- **UI Experience**: Added automatic tab switching and premium styling for AI explanations triggered from the command history.
 
 ## [0.0.1] — Unreleased
 

@@ -39,6 +39,9 @@ export class TerminalWatcher implements vscode.Disposable {
   private readonly _onCommandFinished = new vscode.EventEmitter<CommandEntry>();
   public readonly onCommandFinished = this._onCommandFinished.event;
 
+  private readonly _onBuddyTrigger = new vscode.EventEmitter<{ terminal: vscode.Terminal; cmd: string }>();
+  public readonly onBuddyTrigger = this._onBuddyTrigger.event;
+
   private readonly _onCommandStart = new vscode.EventEmitter<{ id: string; cmd: string; cwd: string; terminalId: string; terminalName: string; isAgentRun: boolean }>();
   public readonly onCommandStart = this._onCommandStart.event;
 
@@ -50,6 +53,9 @@ export class TerminalWatcher implements vscode.Disposable {
 
   private readonly _onSensitivityDetected = new vscode.EventEmitter<vscode.Terminal>();
   public readonly onSensitivityDetected = this._onSensitivityDetected.event;
+
+  private readonly _onJiraIssueDetected = new vscode.EventEmitter<string>();
+  public readonly onJiraIssueDetected = this._onJiraIssueDetected.event;
 
   private readonly disposables: vscode.Disposable[] = [];
   private buffers: Map<vscode.Terminal, ExecutionBuffer> = new Map();
@@ -90,10 +96,15 @@ export class TerminalWatcher implements vscode.Disposable {
     this.disposables.push(
       vscode.window.onDidStartTerminalShellExecution(async (e) => {
         const terminal = e.terminal;
+        console.log(`[Terminal Buddy] Shell Execution STARTED: ${terminal.name}`);
         this.shellIntegration.set(terminal, true);
         const execution = e.execution;
         const cmd = execution.commandLine?.value ?? '';
         const cwd = execution.cwd?.fsPath ?? '';
+        
+        // Scan for Jira IDs in the command itself or branch-related git commands
+        this.scanForJiraId(cmd);
+        
         const termId = this.getTerminalId(terminal);
 
         const id = generateId();
@@ -120,6 +131,7 @@ export class TerminalWatcher implements vscode.Disposable {
     this.disposables.push(
       vscode.window.onDidEndTerminalShellExecution((e) => {
         const terminal = e.terminal;
+        console.log(`[Terminal Buddy] Shell Execution ENDED: ${terminal.name} (Code: ${e.exitCode})`);
         const buffer = this.buffers.get(terminal);
         if (!buffer) { return; }
 
@@ -142,7 +154,15 @@ export class TerminalWatcher implements vscode.Disposable {
           terminalName: terminal.name,
         };
 
-        if (this.isMeaningfulCommand(buffer.cmd)) {
+        const isMeaningful = this.isMeaningfulCommand(buffer.cmd);
+        const cleaned = this.cleanRawCommand(buffer.cmd).toLowerCase();
+        const isTrigger = ['buddy', 'check', 'zenith'].includes(cleaned);
+
+        if (isTrigger) {
+          this._onBuddyTrigger.fire({ terminal, cmd: cleaned });
+          // Also fire as a successful command for history, or suppress?
+          // Let's suppress "trigger" commands from history to keep it clean.
+        } else if (isMeaningful) {
           this._onCommandFinished.fire(entry);
         }
         this.buffers.delete(terminal);
@@ -224,7 +244,7 @@ export class TerminalWatcher implements vscode.Disposable {
 
             this.debounceTimers.set(terminal, setTimeout(() => {
               this.finalizeRawBuffer(terminal);
-            }, DEBOUNCE_TERMINAL_MS * 10));
+            }, DEBOUNCE_TERMINAL_MS * 5)); // ⚡ Performance: 500ms delay instead of 1000ms
           }),
         );
       } catch (err) {
@@ -247,19 +267,29 @@ export class TerminalWatcher implements vscode.Disposable {
     const output = buffer.output;
     const hasError = /error|failed|exception|not recognized|not found/i.test(output);
     
-    if (hasError && this.isMeaningfulCommand(output)) {
-       const entry: CommandEntry = {
-        id: buffer.id,
-        cmd: '(Output Analysis)',
-        cwd: buffer.cwd,
-        project: this.extractProjectName(buffer.cwd),
-        status: 'error',
-        exitCode: 1,
-        tag: 'other',
-        timestamp: buffer.startTime,
-        isAgentRun: this.detectAgentRun(terminal, buffer.startTime),
-        errorOutput: this.extractErrorOutput(output),
-      };
+    const isMeaningful = this.isMeaningfulCommand(output);
+    if (!isMeaningful) { 
+      // Reset for next potential command
+      buffer.id = generateId();
+      buffer.output = '';
+      buffer.startTime = Date.now();
+      return; 
+    }
+
+    const entry: CommandEntry = {
+      id: buffer.id,
+      cmd: this.cleanRawCommand(output),
+      cwd: buffer.cwd,
+      project: this.extractProjectName(buffer.cwd),
+      status: hasError ? 'error' : 'ok',
+      exitCode: hasError ? 1 : 0,
+      tag: 'other',
+      timestamp: buffer.startTime,
+      isAgentRun: this.detectAgentRun(terminal, buffer.startTime),
+      errorOutput: hasError ? this.extractErrorOutput(output) : undefined,
+    };
+
+    if (entry.cmd.length > 0) {
       this._onCommandFinished.fire(entry);
     }
     
@@ -431,12 +461,22 @@ export class TerminalWatcher implements vscode.Disposable {
      return this.agentDetected.get(terminal) || false;
   }
 
+  private scanForJiraId(text: string): void {
+    // Regex for typical Jira keys: PROJ-123
+    const jiraRegex = /\b([A-Z][A-Z0-9]+-[0-9]+)\b/g;
+    const matches = text.match(jiraRegex);
+    if (matches) {
+      matches.forEach(id => this._onJiraIssueDetected.fire(id));
+    }
+  }
+
   dispose(): void {
     this._onCommandFinished.dispose();
     this._onCommandStart.dispose();
     this._onWrongDirectory.dispose();
     this._onData.dispose();
     this._onSensitivityDetected.dispose();
+    this._onJiraIssueDetected.dispose();
     this.buffers.clear();
     for (const timer of this.debounceTimers.values()) {
       clearTimeout(timer);
@@ -449,12 +489,31 @@ export class TerminalWatcher implements vscode.Disposable {
     }
   }
 
+  private cleanRawCommand(raw: string): string {
+    // 🧠 Strip common prompts from the start/end of raw buffer captures
+    // Patterns: C:\Users\Asus> or (ps) C:\Users\Asus> or user@host:~$
+    let c = raw.trim();
+    c = c.replace(/^[(\w+)]?\s*[A-Z]:\\[^>]*>\s*/i, ''); // Windows CMD/PS prompt
+    c = c.replace(/^[\w.-]+@[\w.-]+:?[^$#]*[$#]\s*/, ''); // POSIX prompt
+    if (c.length > 100) { c = c.substring(0, 100) + '...'; }
+    return c || '(Raw Output)';
+  }
+
   private isMeaningfulCommand(cmd: string): boolean {
     const c = cmd.trim();
     if (!c) { return false; }
+    
+    // Very short commands often used in terminal
+    const shortWhitelist = ['g', 'l', 'ls', 'cd', 'vi', 'rm', 'cp', 'mv', 'ps', 'df', 'du', 'hi'];
+    if (shortWhitelist.includes(c.toLowerCase())) { return true; }
+
     const greetings = ['hi', 'hello', 'hey', 'yo', 'sup', 'test', 'foo', 'bar', 'ping'];
     if (greetings.includes(c.toLowerCase())) { return true; }
-    if (c.length < 2 && !['l', 'p', 's', 'w', 'q'].includes(c)) { return false; }
+
+    // Strip common prompt leftovers before length check
+    const cleaned = c.replace(/[A-Z]:\\[^>]*>/gi, '').trim();
+    if (cleaned.length < 2) { return false; }
+    
     if (c.startsWith('\x1b')) { return false; } 
     if (c.includes('\ufffd')) { return false; } 
     return true;

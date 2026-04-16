@@ -4,7 +4,7 @@ export type ProjectType = 'react' | 'nextjs' | 'vue' | 'angular' | 'svelte' | 'n
 export type CommandStatus = 'ok' | 'error' | 'warning' | 'running';
 export type CommandTag = 'test' | 'build' | 'git' | 'install' | 'run' | 'agent' | 'other';
 export type PetMood = 'happy' | 'worried' | 'sleeping' | 'excited' | 'scared' | 'neutral';
-export type PetType = 'cat' | 'dog' | 'robot' | 'ghost';
+export type PetType = 'cat' | 'dog' | 'robot' | 'ghost' | 'dragon';
 export type AIProviderType = 'gemini' | 'openai' | 'claude' | 'groq' | 'ollama' | 'zai' | 'minimax' | 'custom';
 
 // ─── Command History ─────────────────────────────────────────────────────────
@@ -114,6 +114,7 @@ export interface ErrorExplanation {
   fix: string;
   learnMoreUrl?: string;
   suggestedCommands?: string[];
+  missingKeyId?: string;       // 🗝️ New: Identify if a vault key is missing
   fromCache: boolean;
   source: 'rule' | 'ai';
 }
@@ -275,8 +276,11 @@ export const PRESET_SERVICES: VaultKey[] = [
   { id: 'gh', name: 'GitHub', envVar: 'GITHUB_TOKEN' },
   { id: 'aws_id', name: 'AWS Access Key ID', envVar: 'AWS_ACCESS_KEY_ID' },
   { id: 'aws_secret', name: 'AWS Secret Access Key', envVar: 'AWS_SECRET_ACCESS_KEY' },
-  { id: 'npm', name: 'NPM Automaton Token', envVar: 'NPM_TOKEN' },
-  { id: 'openai_legacy', name: 'OpenAI API Key (Global)', envVar: 'OPENAI_API_KEY' }
+  { id: 'npm', name: 'NPM Token', envVar: 'NPM_TOKEN' },
+  { id: 'openai_legacy', name: 'OpenAI API Key', envVar: 'OPENAI_API_KEY' },
+  { id: 'supabase', name: 'Supabase Key', envVar: 'SUPABASE_KEY' },
+  { id: 'firebase', name: 'Firebase Secret', envVar: 'FIREBASE_TOKEN' },
+  { id: 'anthropic', name: 'Anthropic Key', envVar: 'ANTHROPIC_API_KEY' }
 ];
 
 export const STORAGE_VERSION = 1;

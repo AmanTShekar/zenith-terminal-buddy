@@ -2,8 +2,9 @@
   "name": "terminal-buddy",
   "displayName": "Terminal Buddy",
   "description": "Your friendly terminal companion — explains errors, suggests commands, tracks history, helps with git, and has a pet.",
-  "version": "0.4.1",
-  "publisher": "terminal-buddy",
+  "version": "1.0.0",
+  "publisher": "Zenithdev",
+  "icon": "logo.png",
   "enabledApiProposals": [
     "terminalDataWriteEvent"
   ],
@@ -12,7 +13,7 @@
     "url": "https://github.com/AmanTShekar/zenith-terminal-buddy.git"
   },
   "engines": {
-    "vscode": "^1.82.0"
+    "vscode": "^1.90.0"
   },
   "categories": [
     "Other"
@@ -82,19 +83,20 @@
         },
         "terminalBuddy.petType": {
           "type": "string",
-          "default": "cat",
-          "enum": ["cat", "dog", "robot", "ghost"],
+          "default": "dragon",
+          "enum": ["cat", "dog", "robot", "ghost", "dragon"],
           "enumDescriptions": [
             "A friendly cat 🐱",
             "A loyal dog 🐶",
             "A helpful robot 🤖",
-            "A silly ghost 👻"
+            "A silly ghost 👻",
+            "A powerful dragon 🐉"
           ],
           "description": "[Pet] Choose which animal or friend follows you."
         },
         "terminalBuddy.petName": {
           "type": "string",
-          "default": "Buddy",
+          "default": "Zenith",
           "description": "[Pet] Give your companion a name."
         },
         "terminalBuddy.aiEnabled": {
@@ -146,6 +148,21 @@
           "default": false,
           "description": "[System] Monitor all active network ports (may impact performance)."
         },
+        "terminalBuddy.jiraHost": {
+          "type": "string",
+          "default": "",
+          "description": "[Jira] Your Jira Host (e.g. https://your-domain.atlassian.net)"
+        },
+        "terminalBuddy.jiraEmail": {
+          "type": "string",
+          "default": "",
+          "description": "[Jira] Your Atlassian Email address."
+        },
+        "terminalBuddy.jiraToken": {
+          "type": "string",
+          "default": "",
+          "description": "[Jira] API Token for Jira Cloud or Personal Access Token for Server."
+        },
         "terminalBuddy.enableVault": {
           "type": "boolean",
           "default": true,
@@ -167,6 +184,21 @@
           "minimum": 50,
           "maximum": 1000,
           "description": "[System] Number of command history logs to keep."
+        },
+        "terminalBuddy.proactiveAi": {
+          "type": "boolean",
+          "default": false,
+          "description": "[AI] Automatically analyze terminal errors as they happen."
+        },
+        "terminalBuddy.agentSyncEnabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "[Sync] Share terminal context with other AI agents (like Antigravity)."
+        },
+        "terminalBuddy.agentContextPath": {
+          "type": "string",
+          "default": ".buddy/antigravity.md",
+          "description": "[Sync] Path to the shared context file."
         }
       }
     },
@@ -188,7 +220,29 @@
           "icon": "$(terminal)"
         }
       ]
-    }
+    },
+    "chatParticipants": [
+      {
+        "id": "terminalBuddy.chat",
+        "name": "buddy",
+        "fullName": "Terminal Buddy",
+        "description": "Analyze terminal errors and git status directly in chat.",
+        "commands": [
+          {
+            "name": "explain",
+            "description": "Analyze the last terminal error."
+          },
+          {
+            "name": "fix",
+            "description": "Suggest a fix for the terminal bug."
+          },
+          {
+            "name": "status",
+            "description": "Get current terminal health summary."
+          }
+        ]
+      }
+    ]
   },
   "scripts": {
     "vscode:prepublish": "npm run build",

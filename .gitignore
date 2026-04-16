@@ -41,3 +41,13 @@ desktop.ini
 status.txt
 tmp/
 temp/
+
+# --- Project Backups & Unnecessary Files ---
+old_*.txt
+temp_lazyjira/
+git_final.js
+audit.txt
+src/panel/old_*.txt
+src/panel/old_scripts_utf8.txt
+src/panel/old_styles_utf8.txt
+src/panel/old_html_utf8.txt

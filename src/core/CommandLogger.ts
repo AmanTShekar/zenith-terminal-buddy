@@ -66,6 +66,10 @@ export class CommandLogger {
 
   // ── Public API ─────────────────────────────────────────────────────────
 
+  getById(id: string): CommandEntry | undefined {
+    return this.entries.find(e => e.id === id);
+  }
+
   async add(entry: CommandEntry): Promise<void> {
     if (!entry.cmd || !entry.cmd.trim()) {
       return;
@@ -124,14 +128,16 @@ export class CommandLogger {
     this.save();
   }
 
-  getStats(): { total: number; ok: number; error: number; warning: number } {
+  getStats(): { total: number; ok: number; error: number; warning: number; successRate: number } {
     let ok = 0, error = 0, warning = 0;
     for (const e of this.entries) {
       if (e.status === 'ok') { ok++; }
       else if (e.status === 'error') { error++; }
       else if (e.status === 'warning') { warning++; }
     }
-    return { total: this.entries.length, ok, error, warning };
+    const total = this.entries.length;
+    const successRate = total > 0 ? ok / total : 1;
+    return { total, ok, error, warning, successRate };
   }
 
   getLastError(): CommandEntry | null {
