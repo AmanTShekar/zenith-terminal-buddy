@@ -181,10 +181,19 @@ export class PanelProvider implements vscode.WebviewViewProvider, vscode.Disposa
     this.post({ type: 'updatePorts', payload: ports || [] }); 
   }
 
+  public async openBuddySummary(): Promise<void> {
+    const t = vscode.window.activeTerminal || vscode.window.terminals[0];
+    if (t) {
+      await this.handleBuddyTrigger({ terminal: t, cmd: '' });
+    } else {
+      vscode.window.showErrorMessage('No active terminal found for analysis.');
+    }
+  }
+
   private async handleBuddyTrigger(e: { terminal: vscode.Terminal; cmd: string }): Promise<void> {
     // 1. Ensure Panel is visible
     if (!this.view) {
-      vscode.commands.executeCommand('terminalBuddy.focus');
+      vscode.commands.executeCommand('terminalBuddy.panel.focus');
     } else {
       this.view.show(true);
     }

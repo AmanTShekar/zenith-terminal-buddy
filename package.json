@@ -44,12 +44,12 @@
         "title": "Terminal Buddy: Set AI API Key"
       },
       {
-        "command": "terminalBuddy.togglePet",
-        "title": "Terminal Buddy: Toggle Pet Mode"
+        "command": "terminalBuddy.injectVaultKey",
+        "title": "Terminal Buddy: Inject Vault Key"
       },
       {
-        "command": "terminalBuddy.setProviderApiKey",
-        "title": "Terminal Buddy: Set Provider API Key"
+        "command": "terminalBuddy.togglePet",
+        "title": "Terminal Buddy: Toggle Pet Mode"
       },
       {
         "command": "terminalBuddy.explainError",
