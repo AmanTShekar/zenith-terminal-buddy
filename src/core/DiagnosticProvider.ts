@@ -7,7 +7,7 @@ export class DiagnosticProvider {
   private diagnostics: vscode.DiagnosticCollection;
 
   constructor() {
-    this.diagnostics = vscode.languages.createDiagnosticCollection('terminal-buddy');
+    this.diagnostics = vscode.languages.createDiagnosticCollection('zenith-terminal-buddy');
   }
 
   public reportError(entry: CommandEntry): void {

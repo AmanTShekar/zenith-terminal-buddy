@@ -1,8 +1,8 @@
 {
-  "name": "terminal-buddy",
+  "name": "zenith-terminal-buddy",
   "displayName": "Terminal Buddy",
   "description": "Your friendly terminal companion — explains errors, suggests commands, tracks history, helps with git, and has a pet.",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "publisher": "Zenithdev",
   "icon": "logo.png",
   "enabledApiProposals": [

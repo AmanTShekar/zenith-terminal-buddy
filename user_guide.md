@@ -20,7 +20,7 @@ Version 0.0.4 includes experimental terminal monitoring (raw data capture). Due 
 2.  Open your **Command Prompt** (cmd) or **PowerShell**.
 3.  Run the following command:
     ```bash
-    code --enable-proposed-api Zenithdev.terminal-buddy
+    code --enable-proposed-api Zenithdev.zenith-terminal-buddy
     ```
 
 ### What You Get in Power Mode:
