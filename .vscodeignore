@@ -11,3 +11,12 @@ node_modules/**
 !dist/**
 !dist/extension.js
 !dist/extension.js.map
+
+# --- Project Backups & Unnecessary Files ---
+old_*.txt
+temp_lazyjira/**
+git_final.js
+audit.txt
+*.vsix
+src/panel/old_*.txt
+logo terminal buddy.jpg
