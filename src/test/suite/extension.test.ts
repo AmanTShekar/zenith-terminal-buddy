@@ -1,6 +1,6 @@
 import * as assert from 'assert';
 import * as vscode from 'vscode';
-// Explicit mocha imports removed to allow VS Code test runner to provide globals
+import { suite, test } from 'mocha';
 
 suite('Extension Test Suite', () => {
 	vscode.window.showInformationMessage('Start all tests.');
@@ -11,23 +11,38 @@ suite('Extension Test Suite', () => {
 	});
 
     test('Extension should be present', () => {
-		assert.ok(vscode.extensions.getExtension('Zenithdev.terminal-buddy'));
+        const id = 'Zenithdev.zenith-terminal-buddy';
+        console.log(`Checking for extension: ${id}`);
+        const ext = vscode.extensions.getExtension(id);
+        if (!ext) {
+            console.log('Available extensions:', vscode.extensions.all.map(e => e.id).filter(id => id.includes('buddy')));
+        }
+		assert.ok(ext, `Extension ${id} not found`);
 	});
 
     test('Extension should activate', async () => {
-        const ext = vscode.extensions.getExtension('Zenithdev.zenith-terminal-buddy');
+        const id = 'Zenithdev.zenith-terminal-buddy';
+        console.log(`Activating extension: ${id}`);
+        const ext = vscode.extensions.getExtension(id);
         if (ext) {
             await ext.activate();
+            console.log(`Is Active: ${ext.isActive}`);
             assert.strictEqual(ext.isActive, true);
+        } else {
+            assert.fail(`Extension ${id} not found for activation`);
         }
     });
 
     test('All commands should be registered', async () => {
-        const ext = vscode.extensions.getExtension('Zenithdev.zenith-terminal-buddy');
+        const id = 'Zenithdev.zenith-terminal-buddy';
+        const ext = vscode.extensions.getExtension(id);
         if (ext && !ext.isActive) {
             await ext.activate();
         }
         const commands = await vscode.commands.getCommands(true);
+        const buddyCommands = commands.filter(c => c.startsWith('terminalBuddy.'));
+        console.log('Registered Buddy Commands:', buddyCommands);
+        
         const expectedCommands = [
             'terminalBuddy.openPanel',
             'terminalBuddy.analyzeTerminal',
