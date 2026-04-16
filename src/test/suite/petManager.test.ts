@@ -8,7 +8,7 @@ suite('PetManager Integration Test Suite', () => {
     let petManager: PetManager;
 
     suiteSetup(async () => {
-        const ext = vscode.extensions.getExtension('Zenithdev.terminal-buddy');
+        const ext = vscode.extensions.getExtension('Zenithdev.zenith-terminal-buddy');
         await ext?.activate();
     });
 
