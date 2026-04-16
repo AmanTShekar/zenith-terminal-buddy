@@ -8,16 +8,11 @@ suite('PetManager Integration Test Suite', () => {
     let petManager: PetManager;
 
     suiteSetup(async () => {
-        // In a real VS Code test, we get the context from the extension activation
-        const ext = vscode.extensions.getExtension('terminal-buddy.terminal-buddy');
+        const ext = vscode.extensions.getExtension('Zenithdev.terminal-buddy');
         await ext?.activate();
-        // Since we can't easily grab the internal PetManager instance from the extension base, 
-        // we'll create a mock context for testing logic if needed, 
-        // or just test the public API if we can get a handle.
     });
 
     test('PetManager should initialize with default state', () => {
-        // Mocking ExtensionContext for unit-like testing of PetManager
         const mockContext = {
             globalState: {
                 get: () => undefined,
@@ -29,15 +24,27 @@ suite('PetManager Integration Test Suite', () => {
         const manager = new PetManager(mockContext);
         const state = manager.getState();
         
-        assert.strictEqual(state.level, 1);
-        assert.strictEqual(state.xp, 0);
+        // Since default in package.json is Zenith/Dragon, it starts at Level 10
+        assert.strictEqual(state.level, 10);
+        assert.strictEqual(state.xp, 4500);
         assert.ok(state.name);
     });
 
     test('PetManager should gain XP on successful command', () => {
+        // Mock a Level 1 state to test leveling and XP gain
+        const starterState = {
+            type: 'cat',
+            name: 'Tester',
+            xp: 0,
+            level: 1,
+            mood: 'neutral',
+            errorsFixed: 0,
+            lastActiveAt: Date.now()
+        };
+
         const mockContext = {
             globalState: {
-                get: () => undefined,
+                get: () => starterState,
                 update: () => Promise.resolve()
             },
             subscriptions: []
@@ -58,14 +65,25 @@ suite('PetManager Integration Test Suite', () => {
             isAgentRun: false
         });
 
-        assert.strictEqual(manager.getState().xp, initialXP + 5);
+        assert.strictEqual(manager.getState().xp, initialXP + 10);
         assert.strictEqual(manager.getState().mood, 'happy');
     });
 
     test('PetManager should level up', () => {
+        // Start at level 1 with 90 XP (threshold for Lv 2 is 100)
+        const starterState = {
+            type: 'cat',
+            name: 'Tester',
+            xp: 90,
+            level: 1,
+            mood: 'neutral',
+            errorsFixed: 0,
+            lastActiveAt: Date.now()
+        };
+
         const mockContext = {
             globalState: {
-                get: () => undefined,
+                get: () => starterState,
                 update: () => Promise.resolve()
             },
             subscriptions: []
@@ -73,20 +91,18 @@ suite('PetManager Integration Test Suite', () => {
 
         const manager = new PetManager(mockContext);
         
-        // Force XP to just below level 2 (threshold 100)
-        for (let i = 0; i < 20; i++) {
-            manager.onCommand({
-                id: i.toString(),
-                cmd: 'ls',
-                exitCode: 0,
-                status: 'ok',
-                cwd: '.',
-                project: 'test-project',
-                tag: 'other',
-                timestamp: Date.now(),
-                isAgentRun: false
-            });
-        }
+        // 10 XP per successful command -> should reach 100 XP and level up
+        manager.onCommand({
+            id: 'levelup-test',
+            cmd: 'ls',
+            exitCode: 0,
+            status: 'ok',
+            cwd: '.',
+            project: 'test-project',
+            tag: 'other',
+            timestamp: Date.now(),
+            isAgentRun: false
+        });
 
         assert.strictEqual(manager.getState().level, 2);
     });
