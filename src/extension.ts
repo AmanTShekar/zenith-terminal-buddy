@@ -99,7 +99,7 @@ export function activate(context: vscode.ExtensionContext): void {
         panelProvider.sendLog([]);
         vscode.window.showInformationMessage('Terminal Buddy: History cleared.');
       }),
-      vscode.commands.registerCommand('terminalBuddy.setProviderApiKey', async () => {
+      vscode.commands.registerCommand('terminalBuddy.setApiKey', async () => {
         const providers: { label: string, id: AIProviderType }[] = [
           { label: 'Google Gemini', id: 'gemini' },
           { label: 'OpenAI (GPT)', id: 'openai' },
@@ -135,12 +135,21 @@ export function activate(context: vscode.ExtensionContext): void {
         await vscode.workspace.getConfiguration('terminalBuddy').update('aiProvider', selected.id, vscode.ConfigurationTarget.Global);
         panelProvider.sendAiInfo();
       }),
+      vscode.commands.registerCommand('terminalBuddy.togglePet', async () => {
+        const config = vscode.workspace.getConfiguration('terminalBuddy');
+        const current = config.get<boolean>('petEnabled', true);
+        await config.update('petEnabled', !current, vscode.ConfigurationTarget.Global);
+        vscode.window.showInformationMessage(`Terminal Buddy: Pet Mode ${!current ? 'Enabled' : 'Disabled'}`);
+      }),
       vscode.commands.registerCommand('terminalBuddy.explainError', async (cmd, error) => {
         const explanation = await aiClient.explain(cmd, error);
         if (explanation) {
           panelProvider.sendAiThinking();
           panelProvider.sendExplanation(explanation);
         }
+      }),
+      vscode.commands.registerCommand('terminalBuddy.analyzeTerminal', async () => {
+        panelProvider.openBuddySummary();
       }),
       vscode.commands.registerCommand('terminalBuddy.runExecutable', async (executable: any) => {
         if (!executable) { return; }
@@ -155,6 +164,21 @@ export function activate(context: vscode.ExtensionContext): void {
         if (!terminal) { terminal = vscode.window.createTerminal({ name: terminalName, cwd }); }
         terminal.show();
         terminal.sendText(cmd);
+      }),
+      vscode.commands.registerCommand('terminalBuddy.moveToDirectory', async (targetPath: string) => {
+        if (!targetPath) {
+          const m = projectScanner.getMap();
+          const selected = await vscode.window.showQuickPick(
+            m.projects.map(p => ({ label: p.name, description: p.path, path: p.path })),
+            { placeHolder: 'Select a project to navigate to' }
+          );
+          if (selected) { targetPath = selected.path; }
+        }
+        if (targetPath) {
+          const t = vscode.window.activeTerminal || vscode.window.terminals[0] || vscode.window.createTerminal('Buddy');
+          t.show();
+          t.sendText(`cd "${targetPath}"`);
+        }
       }),
       vscode.commands.registerCommand('terminalBuddy.injectVaultKey', async (keyId: string) => {
         const terminal = vscode.window.activeTerminal;
